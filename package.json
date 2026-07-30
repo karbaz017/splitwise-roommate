@@ -1,0 +1,23 @@
+{
+  "name": "splitwise-dashboard",
+  "version": "1.0.0",
+  "description": "A premium dashboard for managing Splitwise transactions, groups, and friends.",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "splitwise",
+    "dashboard",
+    "transactions",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

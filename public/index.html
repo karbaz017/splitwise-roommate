@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Splitwise Pro Dashboard</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Lucide Icons CDN -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Custom CSS -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <i data-lucide="wallet" class="logo-icon"></i>
+          <span>Splitwise<span class="logo-accent">Pro</span></span>
+        </div>
+      </div>
+
+      <!-- User Profile Card -->
+      <div class="user-profile-card" id="user-profile">
+        <div class="profile-shimmer"></div>
+      </div>
+
+      <!-- Navigation Menu -->
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard">
+          <i data-lucide="layout-dashboard"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="expenses">
+          <i data-lucide="receipt"></i>
+          <span>Expenses</span>
+        </button>
+        <button class="nav-item" data-tab="groups">
+          <i data-lucide="users"></i>
+          <span>Groups</span>
+        </button>
+        <button class="nav-item" data-tab="friends">
+          <i data-lucide="user-check"></i>
+          <span>Friends</span>
+        </button>
+        <button class="nav-item" data-tab="settings">
+          <i data-lucide="settings"></i>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span class="connection-status connected" id="connection-indicator">
+          <span class="status-dot"></span>
+          <span class="status-text">Connected</span>
+        </span>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Dashboard View -->
+      <section class="tab-panel active" id="dashboard-panel">
+        <div class="panel-header">
+          <h1>Dashboard</h1>
+          <div class="header-actions">
+            <button class="btn btn-primary" onclick="app.openExpenseModal()">
+              <i data-lucide="plus"></i> Add Expense
+            </button>
+            <button class="btn btn-secondary" onclick="app.openSettleUpModal()">
+              <i data-lucide="hand-coins"></i> Settle Up
+            </button>
+          </div>
+        </div>
+
+        <!-- Metric Summary Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card balance-net">
+            <div class="metric-icon"><i data-lucide="scale"></i></div>
+            <div class="metric-info">
+              <span class="metric-label">Total Net Balance</span>
+              <h2 class="metric-value loading-shimmer" id="metric-total-balance">$0.00</h2>
+              <span class="metric-sub" id="metric-balance-desc">Loading balances...</span>
+            </div>
+          </div>
+          <div class="metric-card balance-owed">
+            <div class="metric-icon"><i data-lucide="arrow-down-left"></i></div>
+            <div class="metric-info">
+              <span class="metric-label">You Owe</span>
+              <h2 class="metric-value loading-shimmer" id="metric-you-owe">$0.00</h2>
+              <span class="metric-sub text-danger">Pending payments</span>
+            </div>
+          </div>
+          <div class="metric-card balance-receivable">
+            <div class="metric-icon"><i data-lucide="arrow-up-right"></i></div>
+            <div class="metric-info">
+              <span class="metric-label">You Are Owed</span>
+              <h2 class="metric-value loading-shimmer" id="metric-you-are-owed">$0.00</h2>
+              <span class="metric-sub text-success">Collectable funds</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Charts and Activity Layout -->
+        <div class="dashboard-grid">
+          <div class="dashboard-card chart-card">
+            <h3><i data-lucide="pie-chart"></i> Category Breakdown</h3>
+            <div class="chart-container">
+              <canvas id="categoryChart"></canvas>
+              <div class="no-chart-data hidden" id="no-chart-msg">
+                <i data-lucide="chart-column-increasing"></i>
+                <p>No recent spending data available to display.</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="dashboard-card activity-card">
+            <h3><i data-lucide="clock"></i> Recent Activity</h3>
+            <div class="activity-list" id="recent-activity-list">
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+              <div class="shimmer-item"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Expenses View -->
+      <section class="tab-panel" id="expenses-panel">
+        <div class="panel-header">
+          <h1>Expenses</h1>
+          <div class="header-actions">
+            <button class="btn btn-primary" onclick="app.openExpenseModal()">
+              <i data-lucide="plus"></i> Add Expense
+            </button>
+            <button class="btn btn-secondary" onclick="app.openSettleUpModal()">
+              <i data-lucide="hand-coins"></i> Settle Up
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter and Search Bar -->
+        <div class="filter-bar">
+          <div class="search-input-wrapper">
+            <i data-lucide="search"></i>
+            <input type="text" id="expense-search" placeholder="Search by description or date..." oninput="app.handleSearch(event)">
+          </div>
+          <div class="select-wrapper">
+            <i data-lucide="users"></i>
+            <select id="filter-group" onchange="app.handleGroupFilter(event)">
+              <option value="">All Groups</option>
+            </select>
+          </div>
+          <div class="select-wrapper">
+            <i data-lucide="user"></i>
+            <select id="filter-friend" onchange="app.handleFriendFilter(event)">
+              <option value="">All Friends</option>
+            </select>
+          </div>
+          <button class="btn btn-icon btn-outline" id="clear-filters-btn" title="Clear Filters" onclick="app.clearFilters()">
+            <i data-lucide="rotate-ccw"></i>
+          </button>
+        </div>
+
+        <!-- Expenses List Container -->
+        <div class="expenses-list" id="expenses-list-container">
+          <!-- Populated dynamically -->
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" id="expenses-pagination">
+          <button class="btn btn-outline btn-sm" id="prev-page-btn" onclick="app.changePage(-1)">
+            <i data-lucide="chevron-left"></i> Previous
+          </button>
+          <span class="pagination-info" id="page-info">Page 1 of 1</span>
+          <button class="btn btn-outline btn-sm" id="next-page-btn" onclick="app.changePage(1)">
+            Next <i data-lucide="chevron-right"></i>
+          </button>
+        </div>
+      </section>
+
+      <!-- Groups View -->
+      <section class="tab-panel" id="groups-panel">
+        <div class="panel-header">
+          <h1>Groups</h1>
+        </div>
+        <div class="cards-grid" id="groups-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </section>
+
+      <!-- Friends View -->
+      <section class="tab-panel" id="friends-panel">
+        <div class="panel-header">
+          <h1>Friends</h1>
+        </div>
+        <div class="cards-grid" id="friends-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </section>
+
+      <!-- Settings View -->
+      <section class="tab-panel" id="settings-panel">
+        <div class="panel-header">
+          <h1>Settings</h1>
+        </div>
+        <div class="settings-container">
+          <div class="settings-card">
+            <h3><i data-lucide="key-round"></i> Splitwise Personal API Token</h3>
+            <p class="settings-desc">
+              Your API Key is used to authenticate requests to Splitwise. It is stored locally in your browser's <code>localStorage</code> and never shared or sent to any server other than our local proxy backend.
+            </p>
+            
+            <div class="form-group key-input-group">
+              <label for="api-key-input">Personal API Key</label>
+              <div class="password-input-wrapper">
+                <input type="password" id="api-key-input" placeholder="Paste your API key here...">
+                <button class="btn-toggle-password" onclick="app.toggleApiKeyVisibility()">
+                  <i data-lucide="eye" id="key-visibility-icon"></i>
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-actions">
+              <button class="btn btn-primary" onclick="app.saveApiKey()">Save Token</button>
+              <button class="btn btn-danger btn-outline" onclick="app.clearApiKey()">Delete Token</button>
+            </div>
+
+            <div class="settings-guide">
+              <h4>How to get your API Key:</h4>
+              <ol>
+                <li>Log in to the <a href="https://secure.splitwise.com/apps" target="_blank" rel="noopener noreferrer">Splitwise Developer Portal <i data-lucide="external-link" class="inline-icon"></i></a>.</li>
+                <li>Click on <strong>"Register your application"</strong>.</li>
+                <li>Fill in the fields (you can use dummy URLs like <code>http://localhost:3000</code>).</li>
+                <li>Click <strong>"Register"</strong>, then under your app details click <strong>"Create a personal API key"</strong>.</li>
+                <li>Copy the long string provided and paste it above.</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- API Key Missing Modal Backdrop -->
+  <div class="modal-backdrop hidden" id="api-key-modal">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h2><i data-lucide="key-round" class="text-indigo"></i> Enter Splitwise API Key</h2>
+      </div>
+      <div class="modal-body">
+        <p>A Splitwise Personal API Key is required to load your groups, friends, and transactions.</p>
+        <div class="form-group">
+          <label for="modal-api-key-input">Personal API Key</label>
+          <input type="password" id="modal-api-key-input" placeholder="Paste your token here...">
+        </div>
+        <div class="settings-guide">
+          <h4>Quick Steps:</h4>
+          <ol>
+            <li>Go to <a href="https://secure.splitwise.com/apps" target="_blank" rel="noopener noreferrer">Splitwise Apps</a>.</li>
+            <li>Register a dummy app and click <strong>"Create a personal API key"</strong>.</li>
+            <li>Paste the key here.</li>
+          </ol>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary btn-block" onclick="app.saveModalApiKey()">Save & Connect</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add/Edit Transaction Modal -->
+  <div class="modal-backdrop hidden" id="expense-modal">
+    <div class="modal modal-lg">
+      <div class="modal-header">
+        <h2 id="expense-modal-title">Add Expense</h2>
+        <button class="btn-close" onclick="app.closeExpenseModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form id="expense-form" onsubmit="app.handleExpenseSubmit(event)">
+        <input type="hidden" id="expense-id">
+        <div class="modal-body">
+          <div class="form-row">
+            <div class="form-group flex-2">
+              <label for="exp-description">Description <span class="required">*</span></label>
+              <input type="text" id="exp-description" placeholder="e.g., Dinner, Electricity bill" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="exp-cost">Cost <span class="required">*</span></label>
+              <div class="currency-input-wrapper">
+                <span class="currency-symbol">$</span>
+                <input type="number" id="exp-cost" placeholder="0.00" step="0.01" min="0.01" required oninput="app.recalculateSplits()">
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="exp-date">Date <span class="required">*</span></label>
+              <input type="date" id="exp-date" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="exp-category">Category</label>
+              <select id="exp-category">
+                <!-- Populated dynamically -->
+              </select>
+            </div>
+            <div class="form-group flex-1">
+              <label for="exp-group">Group</label>
+              <select id="exp-group" onchange="app.handleExpenseGroupChange()">
+                <option value="">No Group (Individual Split)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Payer and Split Setup -->
+          <div class="split-setup-container">
+            <div class="split-setup-header">
+              <h3><i data-lucide="split"></i> Splitting Breakdown</h3>
+              <div class="split-mode-selector">
+                <select id="split-mode-select" onchange="app.setSplitMode(this.value)" class="split-mode-dropdown">
+                  <option value="equal">Split Equally</option>
+                  <option value="exact">Split by Exact Amounts</option>
+                  <option value="percentage">Split by Percentages (%)</option>
+                  <option value="shares">Split by Shares</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Participant Setup List -->
+            <div class="participants-list-wrapper">
+              <div class="individual-friend-selector-row" id="friend-selector-row">
+                <label for="add-friend-to-expense">Add Friend to Split:</label>
+                <div class="select-wrapper">
+                  <select id="add-friend-to-expense" onchange="app.addIndividualFriendToExpense(event)">
+                    <option value="">-- Choose Friend --</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="participants-header-row">
+                <span class="col-name">Name</span>
+                <span class="col-paid">Paid Share ($)</span>
+                <span class="col-owed">Owed Share ($)</span>
+              </div>
+              <div class="participants-list" id="participants-container">
+                <!-- Dynamically populated shares rows -->
+              </div>
+            </div>
+
+            <!-- Live Status/Validation Bar -->
+            <div class="split-validation-bar" id="split-validation-bar">
+              <div class="val-item" id="val-paid">
+                <span class="val-dot dot-success"></span>
+                Paid Total: <span id="val-paid-sum">$0.00</span> / <span id="val-paid-target">$0.00</span>
+              </div>
+              <div class="val-item" id="val-owed">
+                <span class="val-dot dot-success"></span>
+                Owed Total: <span id="val-owed-sum">$0.00</span> / <span id="val-owed-target">$0.00</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="app.closeExpenseModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary" id="btn-submit-expense">Save Expense</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Settle Up Modal -->
+  <div class="modal-backdrop hidden" id="settle-modal">
+    <div class="modal modal-md">
+      <div class="modal-header">
+        <h2>Record Payment (Settle Up)</h2>
+        <button class="btn-close" onclick="app.closeSettleUpModal()"><i data-lucide="x"></i></button>
+      </div>
+      <form id="settle-form" onsubmit="app.handleSettleSubmit(event)">
+        <div class="modal-body">
+          <div class="form-group">
+            <label for="settle-friend">With Friend <span class="required">*</span></label>
+            <select id="settle-friend" required onchange="app.handleSettleFriendChange()">
+              <option value="">-- Select Friend --</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Payer <span class="required">*</span></label>
+              <div class="payment-direction-selector">
+                <label class="dir-radio">
+                  <input type="radio" name="settle-direction" value="you-paid" checked required>
+                  <span>You paid</span>
+                </label>
+                <label class="dir-radio">
+                  <input type="radio" name="settle-direction" value="friend-paid" required>
+                  <span id="settle-dir-friend-text">Friend paid</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="settle-amount">Amount ($) <span class="required">*</span></label>
+              <input type="number" id="settle-amount" placeholder="0.00" step="0.01" min="0.01" required>
+            </div>
+            <div class="form-group flex-1">
+              <label for="settle-date">Date <span class="required">*</span></label>
+              <input type="date" id="settle-date" required>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="app.closeSettleUpModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Record Payment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Custom Application Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
