@@ -35,11 +35,13 @@ Please read our **[Code of Conduct](CODE_OF_CONDUCT.md)** to ensure a welcoming 
    ```bash
    cp .env.example .env
    ```
-   Add your Splitwise API key to the `.env` file.
+   All values are optional (see the README configuration table).
 
 4. **Run Development Server:**
    ```bash
-   npm run dev
+   npm run dev      # start with auto-restart
+   npm test         # run tests before opening a PR
+   npm run lint
    ```
 
 ---
@@ -111,16 +113,15 @@ Follow these 5 steps to submit your PR:
 
 ```
 splitwise-roommate/
-├── server.js             # Express reverse proxy server
-├── public/               # Frontend SPA code
-│   ├── index.html        # Main HTML layout page
-│   ├── css/
-│   │   └── style.css     # Glassmorphic layout stylesheets
-│   └── js/
-│       ├── api.js        # Splitwise proxy API fetcher wrapper
-│       └── app.js        # Core state, forms & rendering controller
-├── docs/                 # Systems and setup guides
-└── .github/              # Issue and PR templates, CI/CD actions
+├── server.js             # Entry point
+├── src/                  # money (split engine), ledger (validation), store, receipts, splitwise (optional import), app (routes)
+├── public/               # Frontend (vanilla ES modules)
+│   ├── index.html
+│   ├── css/              # style.css (base) + ledger.css
+│   └── js/               # app, api, receipts (drop/paste), ocr, receipt-parser, util
+├── test/                 # node:test suites
+├── docs/
+└── .github/              # Issue/PR templates, CI
 ```
 
 ---

@@ -1,0 +1,16 @@
+services:
+  ledger:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Strongly recommended if reachable by anyone besides you:
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      SPLITWISE_API_KEY: ${SPLITWISE_API_KEY:-}
+    volumes:
+      - ledger-data:/data
+    restart: unless-stopped
+volumes:
+  ledger-data:

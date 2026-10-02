@@ -1,113 +1,68 @@
-# 🏠 splitwise-roommate
+# 🏠 Roommate Ledger
 
-[![npm version](https://img.shields.io/badge/npm-1.0.0-blue.svg)](https://github.com/karbaz017/splitwise-roommate)
+[![Tests](https://github.com/karbaz017/splitwise-roommate/actions/workflows/test.yml/badge.svg)](https://github.com/karbaz017/splitwise-roommate/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D16.0.0-green.svg)](https://nodejs.org)
 
-> A modern Node.js + Express + vanilla JS web application for managing shared roommate expenses, fully integrated with the Splitwise API.
+A self-hosted, open-source **single place for all money matters with your roommates**: shared expenses, who owes whom, settle-ups, and receipts. It works completely on its own. **Splitwise is optional** (import only), so an outage, a revoked key or Splitwise's API paywall can never block you.
 
----
+## Features
 
-## ✨ Features
+- **Expenses** split equally, by shares, by percentage or by exact amounts, with one or several payers. Money is stored as integer cents, so splits always add up exactly.
+- **Balances & "who pays whom"**: net balance per person plus a minimal list of transfers to settle everyone.
+- **Settle up** with an optional proof-of-payment attachment.
+- **Receipts as image or PDF**: click to browse, **drag & drop**, or **paste** (Ctrl/⌘+V) a screenshot. JPG, PNG, WebP, GIF, HEIC and PDF up to 10 MB, validated by file signature.
+- **Receipt detection**: reads the total, date, merchant and category from photos, digital PDFs and scanned PDFs and pre-fills the form (you confirm). Runs in your browser (Tesseract OCR + pdf.js); receipts are not sent to any third party.
+- **Optional Splitwise import**: read-only, repeatable, failure-tolerant.
+- **Exports**: CSV and full JSON. Your data is plain files in `data/`.
+- Search and filter by text, person, category and month; works on mobile; optional password.
 
-- **📊 Visual Spending Dashboard**: Categorized charts rendering category distributions using **Chart.js**.
-- **💳 Settle Up Balances**: Record payment transactions directly from the UI using Splitwise's cash transfer API (`payment: true`).
-- **🎛️ Multi-Type Splitting**: Select between equal splits, exact amounts, percentages (%), or weighted shares (2:1:1).
-- **💸 Live Smart Validation**: real-time calculation validation checking that paid and owed shares match the total cost.
-- **⚡ Local Speed & Cache**: Instant boot using local metadata caching (`localStorage`) before performing background API refreshes.
-- **✨ Glassmorphic Layout**: Vibrant, modern dark-mode interface utilizing smooth animations and **Lucide Icons**.
+## Quick start
 
----
-
-## 🚀 Quick Start Guide
-
-### 📋 Prerequisites
-- **Node.js** (v16.0.0 or higher; tested on v25)
-- **NPM** (v8.0.0 or higher)
-- A **Splitwise Account** (to register an app and obtain a Personal API Key)
-
-### 📥 Installation Steps
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/karbaz017/splitwise-roommate.git
-   cd splitwise-roommate
-   ```
-
-2. **Install package dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Configure environment variables:**
-   Copy the sample environment configuration file:
-   ```bash
-   cp .env.example .env
-   ```
-   Open the `.env` file and add your configuration details. (See the [Setup Guide](docs/SETUP.md) for how to obtain a Splitwise Personal API Key).
-   ```env
-   PORT=3000
-   SPLITWISE_API_KEY=your_personal_api_key_here
-   ```
-
----
-
-## 🛠️ Usage
-
-### Running the server in development mode:
 ```bash
-npm run dev
+git clone https://github.com/karbaz017/splitwise-roommate.git
+cd splitwise-roommate
+npm install
+cp .env.example .env     # optional
+npm start                # http://localhost:3000
 ```
 
-### Running the server in production mode:
+Open the app, add everyone on the **Roommates** tab, pick who you are in the sidebar, and add your first expense.
+
+Requires Node.js 20+. Docker: `docker compose up -d` (data persists in a volume).
+
+### Sharing with roommates
+
+Run it on any always-on machine (a Raspberry Pi, home server, or small VPS) and open it from each roommate's phone or laptop. **Set `APP_PASSWORD`** and put it behind HTTPS (e.g. Caddy or a Cloudflare Tunnel) if it is reachable beyond your home network. There are no per-user accounts: everyone with the password can edit the shared ledger, and "Viewing as" only changes whose perspective the dashboard shows.
+
+### Back up
+
+Copy the `data/` folder (`ledger.json` + `receipts/`). A `ledger.json.bak` of the previous save is kept automatically.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PORT` | `3000` | HTTP port |
+| `DATA_DIR` | `./data` | Ledger and receipt storage |
+| `APP_PASSWORD` | _(none)_ | Require HTTP Basic auth (any username) |
+| `SPLITWISE_API_KEY` | _(none)_ | Server-side key for the optional import |
+
+## Docs
+
+[Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Features](docs/FEATURES.md) · [Setup](docs/SETUP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
+
+## Development
+
 ```bash
-npm start
+npm test      # unit + API + parser + Splitwise-mock tests
+npm run lint  # syntax check
+npm run dev   # auto-restart
 ```
 
-Once started, open your browser and navigate to:
-👉 **[http://localhost:3000](http://localhost:3000)**
+## Why not just Splitwise?
 
----
+Splitwise's API now requires a Pro subscription on the registering developer's account and limits free usage. Open-source alternatives such as [Spliit](https://github.com/spliit-app/spliit), [SplitPro](https://github.com/oss-apps/split-pro) and [SplitDuo](https://github.com/c4mbr0nn3/splitduo) are worth a look; this project is a deliberately small, zero-database, roommate-focused option with receipt reading built in.
 
-## 📚 Documentation
+## License
 
-Detailed documentation is available in the `docs/` folder:
-- 🗺️ **[System Architecture](docs/ARCHITECTURE.md)**: Design, proxy layer, data flows, and security guidelines.
-- ⚙️ **[Installation & Setup](docs/SETUP.md)**: Comprehensive quick-start and API token guide.
-- 🔌 **[Backend API Reference](docs/API.md)**: REST endpoints table and response schema guidelines.
-- 📋 **[Features & Specifications](docs/FEATURES.md)**: Product specifications and milestones.
-- ❓ **[FAQ & Troubleshooting](docs/FAQ.md)**: Answers to common integration questions.
-
----
-
-## 🗺️ Roadmap
-
-- **v1.0.0** (Current Release) ✅
-  - Group and Friend list rendering.
-  - Expense creation and deletion.
-  - Multiple split types (equal, custom, percentage, shares).
-  - "Settle Up" transaction logic.
-- **v1.1.0** (Planned) 📅
-  - Recurring roommate subscription tracking.
-  - Receipt image scanning & OCR parsing.
-  - Audit trail and group logs.
-- **v2.0.0** (Future) 🚀
-  - local Database caching backend (MongoDB / PostgreSQL).
-  - Multi-user authentication profiles.
-  - Dockerized container configurations.
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Please read the **[Contributing Guidelines](CONTRIBUTING.md)** and our **[Code of Conduct](CODE_OF_CONDUCT.md)** before opening pull requests.
-
----
-
-## 🔒 Security Note: API Keys
-This app uses a personal proxy server to communicate with Splitwise to avoid browser CORS blocks. **Never commit your `.env` file** or hardcode API keys. The keys are either kept in the server-side `.env` or stored locally inside your browser's private `localStorage`.
-
----
-
-## 📄 License
-This project is licensed under the MIT License - see the **[LICENSE](LICENSE)** file for details.
+MIT

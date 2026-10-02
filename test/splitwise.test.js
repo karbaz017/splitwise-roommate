@@ -19,8 +19,8 @@ const mockFetch = (state) => async (url) => {
   const p = new URL(url).pathname;
   if (state.status) return new Response('{}', { status: state.status });
   if (state.offline) throw new TypeError('fetch failed');
-  if (p.endsWith('get_current_user')) return Response.json({ user: { id: 10, first_name: 'Me', last_name: 'X' } });
-  if (p.endsWith('get_expenses')) return Response.json({ expenses: state.expenses });
+  if (p.endsWith('get_current_user')) return new Response(JSON.stringify({ user: { id: 10, first_name: 'Me', last_name: 'X' } }), { headers: { "Content-Type": "application/json" } });
+  if (p.endsWith('get_expenses')) return new Response(JSON.stringify({ expenses: state.expenses }), { headers: { "Content-Type": "application/json" } });
   return new Response('{}', { status: 404 });
 };
 
