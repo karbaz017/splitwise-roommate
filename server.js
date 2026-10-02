@@ -10,6 +10,7 @@ const dataDir = expandPath(process.env.DATA_DIR || './data');
 
 const remote = remoteFromEnv();
 const app = await createApp({ dataDir, remote, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '',
+  dropboxAppKey: process.env.DROPBOX_APP_KEY || '', appUrl: process.env.APP_URL || `http://localhost:${PORT}`, syncPassphrase: process.env.SYNC_PASSPHRASE || '',
   anthropicKey: process.env.ANTHROPIC_API_KEY || '', anthropicModel: process.env.ANTHROPIC_MODEL || '' });
 
 app.listen(PORT, () => {

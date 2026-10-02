@@ -152,6 +152,18 @@ export class Store {
     console.warn(`Cloud sync: local changes conflicted with newer cloud data. The cloud version was kept; yours is saved as ${name}`);
   }
 
+  /** Switch cloud backend at runtime (e.g. after "Connect Dropbox"). Pass null to stop syncing; local data is kept. */
+  setRemote(remote) {
+    return this.exclusive(async () => {
+      this.remote = remote;
+      this.synced = false;
+      Object.assign(this.sync, { baseRev: 0, dirty: false, pendingUploads: [], pendingDeletes: [], lastError: null, conflict: null, lastSyncedAt: null });
+      this.lastCheck = 0;
+      await this.saveState();
+      if (remote) await this.pull().catch((e) => this.fail(e)); // seeds an empty cloud, or adopts existing cloud data (keeping a local backup)
+    });
+  }
+
   /** Cheap, throttled "is there anything new in the cloud?" used before reads. Never throws. */
   async ensureFresh() {
     if (!this.remote || Date.now() - this.lastCheck < this.syncCheckMs) return;

@@ -4,6 +4,8 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { DropboxRemote, authorizeUrl, exchangeCode, pkcePair } from './dropbox.js';
+import { EncryptedRemote } from './remote.js';
 import { MAX_DRAFTS_PER_OWNER, createDraft } from './drafts.js';
 import { nextDue, normalizeRule, runRecurring } from './recurring.js';
 import { AiError, DEFAULT_MODEL, analyzeWithAi } from './ai.js';
@@ -42,7 +44,18 @@ function basicAuth(password) {
   };
 }
 
-export async function createApp({ dataDir, remote = null, syncCheckMs, password = '', splitwiseKey = '', anthropicKey = '', anthropicModel = '', fetchImpl = fetch } = {}) {
+export async function createApp({ dataDir, remote = null, syncCheckMs, dropboxAppKey = '', appUrl = 'http://localhost:3000', syncPassphrase = '', dropboxRetryMs, password = '', splitwiseKey = '', anthropicKey = '', anthropicModel = '', fetchImpl = fetch } = {}) {
+  // "Sign in with Dropbox": the refresh token is kept in the data folder (never synced) and survives restarts.
+  const authFile = path.join(dataDir, 'dropbox-auth.json');
+  const readAuth = () => fs.readFile(authFile, 'utf8').then((t) => JSON.parse(t), () => null);
+  let dropboxAuth = dropboxAppKey ? await readAuth() : null;
+  const buildDropbox = (auth) => {
+    const r = new DropboxRemote({ appKey: dropboxAppKey, refreshToken: auth.refreshToken }, fetchImpl, dropboxRetryMs === undefined ? {} : { retryDelayMs: dropboxRetryMs });
+    const pass = auth.passphrase || syncPassphrase;
+    return pass ? new EncryptedRemote(r, pass) : r;
+  };
+  if (!remote && dropboxAuth) remote = buildDropbox(dropboxAuth);
+  const redirectUri = `${appUrl.replace(/\/+$/, '')}/api/dropbox/callback`;
   const store = await new Store(dataDir, { remote, ...(syncCheckMs !== undefined ? { syncCheckMs } : {}) }).init();
   const app = express();
   app.disable('x-powered-by');
@@ -55,8 +68,50 @@ export async function createApp({ dataDir, remote = null, syncCheckMs, password 
     if (req.method === 'GET' && !req.path.startsWith('/sync') && req.path !== '/health') await store.ensureFresh();
     next();
   }));
-  app.get('/api/sync/status', (req, res) => res.json(store.status()));
-  app.post('/api/sync/now', wrap(async (req, res) => res.json(await store.syncNow())));
+  const syncStatus = () => ({ ...store.status(), dropbox: { configured: !!dropboxAppKey, connected: !!dropboxAuth, redirectUri } });
+  app.get('/api/sync/status', (req, res) => res.json(syncStatus()));
+  app.post('/api/sync/now', wrap(async (req, res) => { await store.syncNow(); res.json(syncStatus()); }));
+
+  // ---- Connect Dropbox (OAuth 2 + PKCE) ---------------------------------------
+  const pendingAuth = new Map(); // state -> { verifier, passphrase, at }
+  app.post('/api/dropbox/prepare', wrap(async (req, res) => {
+    if (!dropboxAppKey) throw Object.assign(new Error('Dropbox is not set up on this server. Set DROPBOX_APP_KEY (see docs/CLOUD.md).'), { status: 400 });
+    if (store.remote && !dropboxAuth) throw Object.assign(new Error('Cloud sync is already configured through environment variables. Remove those first to use Connect Dropbox.'), { status: 400 });
+    const passphrase = String(req.body?.passphrase || '');
+    if (passphrase && passphrase.length < 8) throw new ValidationError('Use a passphrase of at least 8 characters, or leave it empty for no encryption');
+    for (const [k, v] of pendingAuth) if (Date.now() - v.at > 10 * 60_000) pendingAuth.delete(k);
+    const { verifier, challenge } = pkcePair();
+    const state = crypto.randomBytes(24).toString('base64url');
+    pendingAuth.set(state, { verifier, passphrase, at: Date.now() });
+    res.json({ url: authorizeUrl({ appKey: dropboxAppKey, redirectUri, challenge, state }) });
+  }));
+
+  app.get('/api/dropbox/callback', wrap(async (req, res) => {
+    const back = (q) => res.redirect(`/?${new URLSearchParams(q)}`);
+    const pending = pendingAuth.get(String(req.query.state || ''));
+    pendingAuth.delete(String(req.query.state || '')); // single use
+    if (req.query.error) return back({ dropbox: 'error', message: String(req.query.error_description || req.query.error).slice(0, 200) });
+    if (!pending || Date.now() - pending.at > 10 * 60_000 || !req.query.code) return back({ dropbox: 'error', message: 'The sign-in expired or was not started here. Please try again.' });
+    try {
+      const { refreshToken } = await exchangeCode({ appKey: dropboxAppKey, code: String(req.query.code), verifier: pending.verifier, redirectUri }, fetchImpl);
+      dropboxAuth = { refreshToken, passphrase: pending.passphrase || '', connectedAt: new Date().toISOString() };
+      await fs.writeFile(authFile, JSON.stringify(dropboxAuth), { mode: 0o600 });
+      await store.setRemote(buildDropbox(dropboxAuth)); // first sync: seeds Dropbox, or adopts what is already there
+      return back({ dropbox: store.status().lastError ? 'error' : 'connected', ...(store.status().lastError ? { message: store.status().lastError } : {}) });
+    } catch (err) {
+      return back({ dropbox: 'error', message: err.message.slice(0, 200) });
+    }
+  }));
+
+  app.post('/api/dropbox/disconnect', wrap(async (req, res) => {
+    if (!dropboxAuth) throw Object.assign(new Error('Dropbox is not connected'), { status: 400 });
+    const inner = store.remote?.inner || store.remote;
+    await inner?.revoke?.();
+    dropboxAuth = null;
+    await fs.rm(authFile, { force: true });
+    await store.setRemote(null); // keeps all local data; just stops syncing
+    res.json(syncStatus());
+  }));
 
   // Delete receipt files locally and (when cloud sync is on) in the cloud.
   const dropReceipts = async (list) => {
