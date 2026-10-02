@@ -1,23 +1,29 @@
 {
-  "name": "splitwise-dashboard",
+  "name": "splitwise-roommate",
   "version": "1.0.0",
-  "description": "A premium dashboard for managing Splitwise transactions, groups, and friends.",
+  "description": "Self-hosted roommate finance ledger: expenses, receipts, balances and settle-ups, with optional Splitwise import.",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "test": "node --test"
   },
   "keywords": [
-    "splitwise",
-    "dashboard",
-    "transactions",
-    "express"
+    "roommates",
+    "expenses",
+    "splitwise-alternative",
+    "self-hosted",
+    "receipts"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
     "dotenv": "^16.4.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "multer": "^1.4.5-lts.2"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }
