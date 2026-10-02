@@ -97,3 +97,52 @@ test('data persists across restarts', async () => {
   const app2 = await createApp({ dataDir: dir });
   assert.ok(app2.get('store').data.people.length >= 3);
 });
+
+// ---- receipts -----------------------------------------------------------
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32)]);
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n');
+
+const upload = async (id, parts) => {
+  const fd = new FormData();
+  for (const [buf, name, type] of parts) fd.append('receipts', new Blob([buf], { type }), name);
+  const res = await fetch(`${base}/api/expenses/${id}/receipts`, { method: 'POST', body: fd });
+  return { status: res.status, body: await res.json() };
+};
+
+test('receipts: upload png+pdf, serve, delete; reject spoofed and oversize files', async () => {
+  const p = (await call('POST', '/api/people', { name: 'Eli' })).body.person;
+  const e = (await call('POST', '/api/expenses', {
+    description: 'Groceries', amount: 20, date: '2026-09-05',
+    paidBy: [{ personId: p.id }], participants: [{ personId: p.id }],
+  })).body.expense;
+
+  const ok = await upload(e.id, [[PNG, 'shot.png', 'image/png'], [PDF, 'bill.pdf', 'application/pdf']]);
+  assert.equal(ok.status, 201);
+  assert.equal(ok.body.expense.receipts.length, 2);
+  const [img, pdf] = ok.body.expense.receipts;
+  assert.equal(img.mime, 'image/png');
+  assert.equal(pdf.mime, 'application/pdf');
+
+  const got = await fetch(`${base}/api/receipts/${pdf.file}`);
+  assert.equal(got.status, 200);
+  assert.equal(got.headers.get('content-type'), 'application/pdf');
+  assert.equal(got.headers.get('x-content-type-options'), 'nosniff');
+  assert.deepEqual(Buffer.from(await got.arrayBuffer()), PDF);
+
+  // HTML renamed to .png must be rejected
+  const spoof = await upload(e.id, [[Buffer.from('<html><script>alert(1)</script></html>'), 'x.png', 'image/png']]);
+  assert.equal(spoof.status, 400);
+
+  const big = await upload(e.id, [[Buffer.concat([PNG, Buffer.alloc(11 * 1024 * 1024)]), 'big.png', 'image/png']]);
+  assert.equal(big.status, 413);
+
+  assert.equal((await fetch(`${base}/api/receipts/..%2Fledger.json`)).status, 404);
+  assert.equal((await upload('missing', [[PNG, 'a.png', 'image/png']])).status, 404);
+
+  assert.equal((await call('DELETE', `/api/expenses/${e.id}/receipts/${img.id}`)).status, 200);
+  assert.equal((await fetch(`${base}/api/receipts/${img.file}`)).status, 404);
+
+  // deleting the expense removes remaining files
+  await call('DELETE', `/api/expenses/${e.id}`);
+  assert.equal((await fetch(`${base}/api/receipts/${pdf.file}`)).status, 404);
+});

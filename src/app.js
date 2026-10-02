@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
 import { ValidationError, netBalances, simplifyDebts } from './money.js';
 import { CATEGORIES, normalizeExpense, normalizePerson } from './ledger.js';
+import {
+  MAX_FILE_BYTES, MAX_RECEIPTS_PER_EXPENSE, RECEIPT_FILE_RE, mimeForFile,
+  removeReceiptFiles, saveReceipts, uploadMiddleware,
+} from './receipts.js';
 
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
@@ -155,13 +159,69 @@ export async function createApp({ dataDir, password = '' } = {}) {
   }));
 
   app.delete('/api/expenses/:id', wrap(async (req, res) => {
-    await store.mutate((d) => {
+    const removed = await store.mutate((d) => {
       const i = d.expenses.findIndex((x) => x.id === req.params.id);
       if (i < 0) throw notFound('Expense');
-      d.expenses.splice(i, 1);
+      return d.expenses.splice(i, 1)[0];
     });
+    await removeReceiptFiles(store.receiptsDir, removed.receipts || []);
     res.json({ deleted: true });
   }));
+
+  // ---- Receipts (images / PDF) ---------------------------------------------
+  const upload = (req, res, next) => uploadMiddleware(req, res, next);
+
+  app.post('/api/expenses/:id/receipts', upload, wrap(async (req, res) => {
+    const files = req.files || [];
+    if (files.length === 0) throw new ValidationError('No file received. Attach one or more files in the "receipts" field.');
+    const exists = data().expenses.find((x) => x.id === req.params.id);
+    if (!exists) throw notFound('Expense');
+    if ((exists.receipts || []).length + files.length > MAX_RECEIPTS_PER_EXPENSE) {
+      throw new ValidationError(`An expense can have at most ${MAX_RECEIPTS_PER_EXPENSE} receipts`);
+    }
+    const saved = await saveReceipts(store.receiptsDir, files);
+    try {
+      const expense = await store.mutate((d) => {
+        const e = d.expenses.find((x) => x.id === req.params.id);
+        if (!e) throw notFound('Expense');
+        e.receipts = [...(e.receipts || []), ...saved];
+        e.updatedAt = new Date().toISOString();
+        return e;
+      });
+      res.status(201).json({ expense: publicExpense(expense), added: saved });
+    } catch (err) {
+      await removeReceiptFiles(store.receiptsDir, saved);
+      throw err;
+    }
+  }));
+
+  app.delete('/api/expenses/:id/receipts/:receiptId', wrap(async (req, res) => {
+    const removed = await store.mutate((d) => {
+      const e = d.expenses.find((x) => x.id === req.params.id);
+      if (!e) throw notFound('Expense');
+      const i = (e.receipts || []).findIndex((r) => r.id === req.params.receiptId);
+      if (i < 0) throw notFound('Receipt');
+      e.updatedAt = new Date().toISOString();
+      return e.receipts.splice(i, 1)[0];
+    });
+    await removeReceiptFiles(store.receiptsDir, [removed]);
+    res.json({ deleted: true });
+  }));
+
+  app.get('/api/receipts/:file', (req, res) => {
+    const { file } = req.params;
+    if (!RECEIPT_FILE_RE.test(file)) throw notFound('Receipt');
+    const meta = data().expenses.flatMap((e) => e.receipts || []).find((r) => r.file === file);
+    res.set({
+      'Content-Type': mimeForFile(file),
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'private, max-age=86400',
+      'Content-Disposition': `inline; filename="${(meta?.name || file).replace(/"/g, '')}"`,
+    });
+    res.sendFile(file, { root: store.receiptsDir }, (err) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'not_found', message: 'Receipt not found' });
+    });
+  });
 
   // ---- Balances -----------------------------------------------------------
   app.get('/api/balances', (req, res) => {
@@ -183,6 +243,14 @@ export async function createApp({ dataDir, password = '' } = {}) {
   app.use((err, req, res, next) => {
     if (err.type === 'entity.parse.failed') {
       return res.status(400).json({ error: 'bad_request', message: 'Request body is not valid JSON' });
+    }
+    if (err.name === 'MulterError') {
+      const message = err.code === 'LIMIT_FILE_SIZE'
+        ? `File too large (max ${MAX_FILE_BYTES / 1024 / 1024} MB each)`
+        : err.code === 'LIMIT_UNEXPECTED_FILE' || err.code === 'LIMIT_FILE_COUNT'
+          ? `Too many files (max ${MAX_RECEIPTS_PER_EXPENSE})`
+          : err.message;
+      return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: 'bad_request', message });
     }
     const status = err.status || 500;
     if (status >= 500) console.error(err);
