@@ -13,3 +13,9 @@
 **Why are my cents off by one in an equal split?** Indivisible cents go to the first participants so totals always match exactly.
 
 **Edited an imported Splitwise entry, then re-imported?** Local edits are kept until Splitwise changes that entry again.
+
+**How does item-by-item splitting handle tax and tip?** The difference between the bill total and the item total is shared in proportion to what each person's items cost. A coupon makes the difference negative and is shared the same way.
+
+**Is my receipt sent anywhere?** Not unless the server has `ANTHROPIC_API_KEY` and AI reading is on in your browser (Settings). Then that receipt goes to Anthropic for reading.
+
+**OCR still fails on my photo.** Retake it flat, bright and filling the frame; or enable AI reading. Low-confidence results are shown as suggestions, never auto-filled.

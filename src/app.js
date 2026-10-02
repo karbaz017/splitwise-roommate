@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { nextDue, normalizeRule, runRecurring } from './recurring.js';
 import { AiError, DEFAULT_MODEL, analyzeWithAi } from './ai.js';
 import { SplitwiseError, importFromSplitwise, makeClient } from './splitwise.js';
 import { ValidationError, netBalances, simplifyDebts } from './money.js';
@@ -48,6 +49,8 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   app.use(express.json({ limit: '1mb' }));
 
   const data = () => store.data;
+  app.set('runRecurring', (now) => runRecurring(store, now));
+  await runRecurring(store).catch((err) => console.error('Recurring bills failed:', err));
   const publicExpense = (e) => ({ ...e });
 
   app.get('/api/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
@@ -211,6 +214,14 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     res.json({ deleted: true });
   }));
 
+  // Must be registered before /api/receipts/:file
+  app.get('/api/receipts/lookup', (req, res) => {
+    const hash = String(req.query.hash || '').toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(hash)) throw new ValidationError('hash must be a SHA-256 hex digest');
+    const e = data().expenses.find((x) => (x.receipts || []).some((r) => r.hash === hash));
+    res.json({ duplicate: e ? { id: e.id, description: e.description, date: e.date, amountCents: e.amountCents } : null });
+  });
+
   app.get('/api/receipts/:file', (req, res) => {
     const { file } = req.params;
     if (!RECEIPT_FILE_RE.test(file)) throw notFound('Receipt');
@@ -225,6 +236,41 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       if (err && !res.headersSent) res.status(404).json({ error: 'not_found', message: 'Receipt not found' });
     });
   });
+
+  // ---- Recurring bills ------------------------------------------------------
+  const publicRule = (r) => ({ ...r, nextDue: nextDue(r) });
+  app.get('/api/recurring', (req, res) => res.json({ rules: (data().recurring || []).map(publicRule) }));
+
+  app.post('/api/recurring', wrap(async (req, res) => {
+    const rule = await store.mutate((d) => {
+      const r = normalizeRule(req.body || {}, d.people);
+      (d.recurring ||= []).push(r);
+      return r;
+    });
+    res.status(201).json({ rule: publicRule(rule) });
+  }));
+
+  app.patch('/api/recurring/:id', wrap(async (req, res) => {
+    const rule = await store.mutate((d) => {
+      const i = (d.recurring || []).findIndex((r) => r.id === req.params.id);
+      if (i < 0) throw notFound('Recurring bill');
+      const cur = d.recurring[i];
+      d.recurring[i] = normalizeRule({ ...cur.template, day: cur.day, active: cur.active, ...req.body }, d.people, cur);
+      return d.recurring[i];
+    });
+    res.json({ rule: publicRule(rule) });
+  }));
+
+  app.delete('/api/recurring/:id', wrap(async (req, res) => {
+    await store.mutate((d) => {
+      const i = (d.recurring || []).findIndex((r) => r.id === req.params.id);
+      if (i < 0) throw notFound('Recurring bill');
+      d.recurring.splice(i, 1); // entries already generated are kept
+    });
+    res.json({ deleted: true });
+  }));
+
+  app.post('/api/recurring/run', wrap(async (req, res) => res.json({ created: await runRecurring(store) })));
 
   // ---- Balances -----------------------------------------------------------
   app.get('/api/balances', (req, res) => {

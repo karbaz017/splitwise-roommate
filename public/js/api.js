@@ -29,6 +29,11 @@ const swHeaders = () => {
 };
 
 export const API = {
+  recurring: () => request('/api/recurring'),
+  addRecurring: (b) => request('/api/recurring', { method: 'POST', body: b }),
+  updateRecurring: (id, b) => request(`/api/recurring/${id}`, { method: 'PATCH', body: b }),
+  deleteRecurring: (id) => request(`/api/recurring/${id}`, { method: 'DELETE' }),
+  lookupReceipt: (hash) => request(`/api/receipts/lookup?hash=${hash}`),
   capabilities: () => request('/api/capabilities'),
   analyzeReceiptAi(file) {
     const form = new FormData();

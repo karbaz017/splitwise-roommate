@@ -17,3 +17,6 @@ app.listen(PORT, () => {
     console.log('Tip: set APP_PASSWORD in .env if this server is reachable by other devices.');
   }
 });
+
+// Generate due recurring bills every hour (also done once at startup).
+setInterval(() => app.get('runRecurring')().catch((e) => console.error('Recurring bills failed:', e)), 60 * 60 * 1000).unref();

@@ -117,6 +117,11 @@
             <p class="settings-desc">Your server has an AI key configured. When on, receipts you attach are sent to Anthropic to be read (better with messy photos, other languages and long item lists). When off, or if it fails, receipts are read locally in your browser.</p>
             <label class="check-inline"><input type="checkbox" id="ai-toggle"> Use AI reading in this browser</label>
           </div>
+          <div class="settings-card">
+            <h3><i data-lucide="repeat"></i> Recurring bills</h3>
+            <p class="settings-desc">Tick "Repeat every month" when adding an expense and it is created automatically each month (missed months are caught up when the server starts).</p>
+            <div id="rec-list"></div>
+          </div>
           <div class="settings-card" id="sw-card">
             <h3><i data-lucide="plug"></i> Splitwise <span class="badge">optional</span></h3>
             <p class="settings-desc">This ledger works on its own. If you have existing history in Splitwise you can import it here (read-only, safe to repeat). Splitwise's API now needs a Pro subscription on the developer account, so if this fails nothing else is affected.</p>
@@ -159,6 +164,7 @@
             <div class="form-group flex-1"><label for="e-date">Date <span class="required">*</span></label><input id="e-date" type="date" required></div>
             <div class="form-group flex-1"><label for="e-category">Category</label><select id="e-category"></select></div>
           </div>
+          <label class="check-inline" id="e-repeat-row"><input type="checkbox" id="e-repeat"> Repeat every month on this day (rent, internet…)</label>
           <div class="form-group">
             <label for="e-paid-by">Paid by</label>
             <div class="paid-by-row">

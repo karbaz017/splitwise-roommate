@@ -61,6 +61,7 @@ export async function saveReceipts(dir, files) {
         name: cleanName(f.originalname),
         mime: MIME_BY_EXT[ext],
         size: f.size,
+        hash: crypto.createHash('sha256').update(f.buffer).digest('hex'),
         uploadedAt: new Date().toISOString(),
       });
     }

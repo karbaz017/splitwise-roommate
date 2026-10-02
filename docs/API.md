@@ -13,6 +13,12 @@ JSON over HTTP. Errors: `{ "error": "...", "message": "human readable" }` with 4
 | POST | `/api/expenses/:id/receipts` | multipart, field `receipts`, ≤10 files, ≤10 MB each |
 | DELETE | `/api/expenses/:id/receipts/:receiptId` | |
 | GET | `/api/receipts/:file` | the stored file |
+| GET/POST | `/api/recurring` | monthly rules: expense body (no `date`) + `day` (1–28), optional `startMonth` |
+| PATCH/DELETE | `/api/recurring/:id` | pause (`{active:false}`) / stop; generated entries are kept |
+| POST | `/api/recurring/run` | generate anything due now |
+| GET | `/api/receipts/lookup?hash=` | find an entry already holding a receipt with this SHA-256 |
+| GET | `/api/capabilities` | `{ai: bool}` |
+| POST | `/api/receipts/analyze` | multipart `receipts` (one file); only when `ANTHROPIC_API_KEY` is set |
 | GET | `/api/balances` | `{net: {personId: cents}, transfers: [{from,to,cents}]}` |
 | GET | `/api/export/expenses.csv`, `/api/export/ledger.json` | downloads |
 | GET | `/api/splitwise/status` | header `X-Splitwise-Token` (or server key); never throws |
@@ -30,4 +36,4 @@ JSON over HTTP. Errors: `{ "error": "...", "message": "human readable" }` with 4
 }
 ```
 
-`paidBy` with several payers needs an `amount` each that sums to the total. `value` is shares, a percentage (sum 100) or an amount (sum = total) depending on the method. Settlement body: `{ "type": "settlement", "from": id, "to": id, "amount": "20", "date": "…" }`.
+`paidBy` with several payers needs an `amount` each that sums to the total. `value` is shares, a percentage (sum 100) or an amount (sum = total) depending on the method. Item-by-item: `"splitMethod": "items", "items": [{"name": "Pizza", "amount": "20.00", "personIds": ["…", "…"]}]` (one payer). Each item is split equally among its `personIds`; `amount` minus the item total (tax/tip/discount) is shared in proportion to each person's item subtotal. Settlement body: `{ "type": "settlement", "from": id, "to": id, "amount": "20", "date": "…" }`.

@@ -77,6 +77,7 @@ async function renderTab() {
     if (state.tab === 'dashboard') await renderDashboard();
     else if (state.tab === 'expenses') await renderExpenses();
     else if (state.tab === 'people') renderPeople();
+    else if (state.tab === 'settings') await renderRecurring();
   } catch (err) { toast(err.message, 'error'); }
   icons();
 }
@@ -205,6 +206,18 @@ function renderPeople() {
     </div></div>`).join('') || '<p class="muted">No roommates yet. Add the first one above.</p>';
 }
 
+// ---------------------------------------------------------------- recurring bills
+async function renderRecurring() {
+  const { rules } = await API.recurring();
+  $('rec-list').innerHTML = rules.map((r) => `<div class="bal-row">
+      <span><strong>${esc(r.template.description)}</strong> · ${money(Math.round(Number(r.template.amount) * 100))} · day ${r.day}<br>
+      <small class="muted">${r.active ? `next: ${formatDate(r.nextDue)}` : 'paused'}${r.lastError ? ` · <span class="text-danger">${esc(r.lastError)}</span>` : ''}</small></span>
+      <span class="person-actions">
+        <button class="btn btn-outline btn-sm" data-rec-toggle="${esc(r.id)}" data-active="${r.active}">${r.active ? 'Pause' : 'Resume'}</button>
+        <button class="btn btn-outline btn-sm" data-rec-del="${esc(r.id)}">Delete</button>
+      </span></div>`).join('') || '<p class="muted">No recurring bills yet.</p>';
+}
+
 // ---------------------------------------------------------------- expense modal
 let expensePicker;
 let disposePaste = () => {};
@@ -230,6 +243,8 @@ function openExpense(expense = null) {
   $('e-category').value = expense?.category || 'Other';
   $('e-notes').value = expense?.notes || '';
   $('e-error').classList.add('hidden');
+  $('e-repeat').checked = false;
+  $('e-repeat-row').classList.toggle('hidden', !!expense);
   const multi = !!expense && expense.paidBy.length > 1;
   $('e-multi-payer').checked = multi;
   // Archived people can only appear when editing an old entry.
@@ -379,7 +394,17 @@ async function submitExpense(e) {
   btn.disabled = true;
   btn.textContent = 'Saving…';
   try {
-    const { expense } = await API.saveExpense(state.editing?.id, buildExpensePayload());
+    const payload = buildExpensePayload();
+    const { expense } = await API.saveExpense(state.editing?.id, payload);
+    if (!state.editing && $('e-repeat').checked) {
+      try {
+        const { date, ...template } = payload;
+        const d = new Date(`${date}T00:00:00Z`);
+        const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)).toISOString().slice(0, 7);
+        await API.addRecurring({ ...template, day: Math.min(d.getUTCDate(), 28), startMonth: next });
+        toast('Will repeat monthly.');
+      } catch (recErr) { toast(`Saved, but couldn't set up repeating: ${recErr.message}`, 'warning'); }
+    }
     const files = expensePicker.files;
     if (files.length) {
       try { await API.uploadReceipts(expense.id, files); } catch (upErr) {
@@ -609,7 +634,9 @@ async function submitSettle(e) {
 function bind() {
   expensePicker = new ReceiptPicker($('e-receipts'));
   expensePicker.onAdded = detectFromReceipt;
+  expensePicker.onDuplicate = (file, d) => toast(`"${file.name}" is already attached to "${d.description}" (${formatDate(d.date)}, ${money(d.amountCents)}). Is this a duplicate?`, 'warning');
   settlePicker = new ReceiptPicker($('s-receipts'));
+  settlePicker.onDuplicate = expensePicker.onDuplicate;
 
   document.addEventListener('click', async (e) => {
     const t = e.target.closest('button, a, [data-toggle]');
@@ -634,6 +661,8 @@ function bind() {
       const p = state.people.find((x) => x.id === d.removePerson);
       if (confirm(`Remove ${p.name}? If they have past expenses they are archived so history stays correct.`)) await mutatePerson(() => API.removePerson(p.id));
     } else if (d.restore) await mutatePerson(() => API.updatePerson(d.restore, { active: true }));
+    else if (d.recToggle) { try { await API.updateRecurring(d.recToggle, { active: d.active !== 'true' }); await renderRecurring(); } catch (err) { toast(err.message, 'error'); } }
+    else if (d.recDel) { if (confirm('Stop this recurring bill? Entries already created are kept.')) { try { await API.deleteRecurring(d.recDel); await renderRecurring(); } catch (err) { toast(err.message, 'error'); } } }
     else if (t.closest('[data-toggle]') && !t.closest('.expense-actions')) t.closest('.expense-card-wrapper').classList.toggle('expanded');
   });
 

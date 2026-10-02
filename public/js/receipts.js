@@ -16,6 +16,7 @@ export class ReceiptPicker {
     this.existing = [];
     this.expenseId = null;
     this.onRemoveExisting = null;
+    this.onDuplicate = null; // (File, duplicateInfo) => void
     this.onAdded = null; // (File[]) => void, called with newly accepted files
     this.render();
   }
@@ -47,6 +48,18 @@ export class ReceiptPicker {
     }
     this.render();
     if (accepted.length) this.onAdded?.(accepted);
+    accepted.forEach((f) => this.checkDuplicate(f));
+  }
+
+  // Warn when the same file is already attached to another entry (double-entry guard).
+  async checkDuplicate(file) {
+    try {
+      if (!window.crypto?.subtle) return; // needs a secure context (https or localhost)
+      const buf = await file.arrayBuffer();
+      const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', buf))].map((b) => b.toString(16).padStart(2, '0')).join('');
+      const { duplicate } = await API.lookupReceipt(hash);
+      if (duplicate && duplicate.id !== this.expenseId) this.onDuplicate?.(file, duplicate);
+    } catch { /* best effort */ }
   }
 
   // Wire paste for the lifetime of a modal; returns a disposer.

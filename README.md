@@ -7,11 +7,14 @@ A self-hosted, open-source **single place for all money matters with your roomma
 
 ## Features
 
-- **Expenses** split equally, by shares, by percentage or by exact amounts, with one or several payers. Money is stored as integer cents, so splits always add up exactly.
+- **Expenses** split equally, by shares, by percentage, by exact amounts, or **item by item** (groceries, restaurant bills), with one or several payers. In item mode each line item is assigned to the people who shared it, and tax, tip, fees and discounts are shared in proportion to what each person's items cost. Money is stored as integer cents, so splits always add up exactly.
 - **Balances & "who pays whom"**: net balance per person plus a minimal list of transfers to settle everyone.
 - **Settle up** with an optional proof-of-payment attachment.
 - **Receipts as image or PDF**: click to browse, **drag & drop**, or **paste** (Ctrl/⌘+V) a screenshot. JPG, PNG, WebP, GIF, HEIC and PDF up to 10 MB, validated by file signature.
-- **Receipt detection**: reads the total, date, merchant and category from photos, digital PDFs and scanned PDFs and pre-fills the form (you confirm). Runs in your browser (Tesseract OCR + pdf.js); receipts are not sent to any third party.
+- **Receipt detection**: reads the total, date, merchant, category, tax/tip and **line items** from photos, digital PDFs and scanned PDFs and pre-fills the form (you confirm). By default it runs entirely in your browser (Tesseract OCR + pdf.js). It tries several passes (straightening, contrast/adaptive thresholding, denoising, alternate layouts, 90°/180°/270° rotation, HEIC conversion), repairs common OCR digit mistakes, cross-checks the total against subtotal + tax + tip or the item list, offers alternative totals, and flags low confidence instead of guessing.
+- **Optional AI reading**: set `ANTHROPIC_API_KEY` to have an AI model read messy receipts and other languages. Off unless configured; it sends the receipt to Anthropic (see Privacy), shows when it was used, and falls back to local OCR on any failure.
+- **Recurring bills**: tick "Repeat every month" on an expense (rent, internet); entries are created automatically, catching up on months missed while the server was off.
+- **Duplicate guard**: warns when the same receipt file is already attached to another entry.
 - **Optional Splitwise import**: read-only, repeatable, failure-tolerant.
 - **Exports**: CSV and full JSON. Your data is plain files in `data/`.
 - Search and filter by text, person, category and month; works on mobile; optional password.
@@ -46,6 +49,12 @@ Copy the `data/` folder (`ledger.json` + `receipts/`). A `ledger.json.bak` of th
 | `DATA_DIR` | `./data` | Ledger and receipt storage |
 | `APP_PASSWORD` | _(none)_ | Require HTTP Basic auth (any username) |
 | `SPLITWISE_API_KEY` | _(none)_ | Server-side key for the optional import |
+| `ANTHROPIC_API_KEY` | _(none)_ | Enables optional AI receipt reading |
+| `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Model used for AI reading |
+
+## Privacy
+
+Without `ANTHROPIC_API_KEY`, no receipt ever leaves your server and browser (the OCR engine and language files are downloaded from a CDN on first use). With it set, each receipt you attach is sent to Anthropic for reading unless that browser turns it off under Settings → AI receipt reading. Nothing else (balances, names, ledger) is sent.
 
 ## Docs
 

@@ -6,6 +6,7 @@ const EMPTY = () => ({
   settings: { householdName: 'My Household', currency: 'USD' },
   people: [],
   expenses: [],
+  recurring: [],
 });
 
 /**

@@ -12,10 +12,12 @@ Browser (vanilla ES modules)  ──HTTP/JSON──▶  Express (src/app.js)  �
 | `src/ledger.js` | Validation and normalisation of people and expenses/settlements |
 | `src/store.js` | JSON store with serialized, atomic writes (temp file + rename), `.bak`, rollback on failure |
 | `src/receipts.js` | Upload handling, file-signature sniffing, safe naming and storage |
+| `src/recurring.js` | Monthly rules, catch-up generation, idempotent via `externalId` |
+| `src/ai.js` | Optional Anthropic vision reader; validates/normalises model output |
 | `src/splitwise.js` | Optional importer; maps Splitwise expenses into ledger entries |
 | `src/app.js` | Routes, optional Basic auth, error handling, exports |
 | `public/js/receipt-parser.js` | Pure text → {total, date, merchant, category} heuristics |
-| `public/js/ocr.js` | Lazy-loads OCR / PDF engines and extracts text |
+| `public/js/ocr.js` | Lazy-loads OCR / PDF engines; multi-pass strategy (deskew, adaptive threshold, denoise, rotation), merges fields across passes |
 
 ## Data model
 
@@ -25,6 +27,7 @@ Browser (vanilla ES modules)  ──HTTP/JSON──▶  Express (src/app.js)  �
 
 ## Design decisions
 
+- **One money module, two runtimes.** `src/money.js` is served to the browser at `/shared/money.js`, so live previews use the same code as the server.
 - **Server computes splits.** Clients send a method and inputs; the server produces cents that always sum to the total. The UI preview is advisory.
 - **No database.** A household's data is tiny; a JSON file is trivially backed up and inspected. Writes are serialized, so concurrent requests cannot interleave. Swap `Store` if you outgrow it.
 - **Single currency per household** (set in Settings). Entries in other currencies are skipped on Splitwise import.
