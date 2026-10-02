@@ -180,3 +180,30 @@ test('item-by-item expense stores items and computes shares', async () => {
   });
   assert.equal(bad.status, 400);
 });
+
+test('item split with quantities and individual charges', async () => {
+  const mk = async (name) => (await call('POST', '/api/people', { name })).body.person.id;
+  const [a, b] = [await mk('Ivy'), await mk('Jon')];
+  const r = await call('POST', '/api/expenses', {
+    description: 'Dinner out', amount: '66.50', date: '2026-09-11', splitMethod: 'items', paidBy: [{ personId: a }],
+    items: [
+      { name: 'Beer', quantity: 3, amount: '15.00', personIds: [a, b] },
+      { name: 'Burger', quantity: 1, amount: '30.00', personIds: [b] },
+    ],
+    charges: [
+      { kind: 'tax', label: 'Sales tax', amount: '3.60' },
+      { kind: 'tip', label: 'Tip 18%', amount: '8.10', mode: 'equal' },
+      { kind: 'discount', label: 'Coupon', amount: '0.20' },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  const e = r.body.expense;
+  assert.equal(e.items[0].quantity, 3);
+  assert.deepEqual(e.charges.map((c) => [c.kind, c.cents, c.mode]), [['tax', 360, 'proportional'], ['tip', 810, 'equal'], ['discount', -20, 'proportional']]);
+  assert.equal(e.otherCents, 6650 - 4500 - (360 + 810 - 20)); // 1000 unexplained -> shared proportionally
+  assert.equal(e.splits.reduce((s, x) => s + x.cents, 0), 6650);
+  const badKind = await call('POST', '/api/expenses', { description: 'x', amount: '5', date: '2026-09-11', splitMethod: 'items', paidBy: [{ personId: a }], items: [{ name: 'A', amount: '5', personIds: [a] }], charges: [{ kind: 'bogus', amount: '1' }] });
+  assert.equal(badKind.status, 400);
+  const badQty = await call('POST', '/api/expenses', { description: 'x', amount: '5', date: '2026-09-11', splitMethod: 'items', paidBy: [{ personId: a }], items: [{ name: 'A', quantity: 0, amount: '5', personIds: [a] }] });
+  assert.equal(badQty.status, 400);
+});

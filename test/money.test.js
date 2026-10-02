@@ -95,3 +95,28 @@ test('allocate is exact for very large amounts', () => {
   const total = 99_999_999_999;
   assert.equal(sum(allocate(total, [333333, 333333, 333334])), total);
 });
+
+test('computeItemSplits: individual charges with per-charge split rules', () => {
+  // A: 10 (alone), B: 30 (alone). tax 4 proportional, delivery 2 equal, coupon -4 proportional.
+  const r = computeItemSplits(4000 + 400 + 200 - 400, [
+    { cents: 1000, personIds: ['a'] },
+    { cents: 3000, personIds: ['b'] },
+  ], [
+    { cents: 400, mode: 'proportional' },
+    { cents: 200, mode: 'equal' },
+    { cents: -400, mode: 'proportional' },
+  ]);
+  assert.equal(r.otherCents, 0);
+  assert.equal(r.chargesCents, 200);
+  const a = r.breakdown.a; const b = r.breakdown.b;
+  assert.deepEqual(a.charges, [100, 100, -100]); // 25% of tax, half of delivery, 25% of coupon
+  assert.deepEqual(b.charges, [300, 100, -300]);
+  const by = Object.fromEntries(r.splits.map((s) => [s.personId, s.cents]));
+  assert.deepEqual(by, { a: 1100, b: 3100 });
+});
+
+test('computeItemSplits: unlisted difference becomes proportional "other"', () => {
+  const r = computeItemSplits(2105, [{ cents: 1000, personIds: ['a'] }, { cents: 1000, personIds: ['b'] }], [{ cents: 100, mode: 'proportional' }]);
+  assert.equal(r.otherCents, 5);
+  assert.equal(sum(r.splits.map((s) => s.cents)), 2105);
+});

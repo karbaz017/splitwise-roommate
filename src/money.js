@@ -132,14 +132,18 @@ export function simplifyDebts(net) {
 
 /**
  * Item-by-item split (groceries, restaurant bills).
- * Each item is split equally between the people it is assigned to. Whatever is
- * left between the item total and the bill total (tax, tip, fees, or a negative
- * discount) is shared in proportion to what each person's items cost.
- * @param {number} total bill total in cents (items + extras)
- * @param {{cents:number, personIds:string[]}[]} items
- * @returns {{splits:{personId:string,cents:number}[], itemsCents:number, extraCents:number}}
+ * - Each item is split equally between the people it is assigned to.
+ * - Each charge (tax, tip, service fee, discount) is a signed amount shared either
+ *   "proportional" (to what each person's items cost) or "equal" (between everyone
+ *   who has at least one item).
+ * - Whatever remains between the bill total and items + charges (rounding, an
+ *   unlisted fee) is shared proportionally.
+ * @param {number} total bill total in cents
+ * @param {{cents:number, personIds:string[]}[]} items line totals in cents
+ * @param {{cents:number, mode?:'proportional'|'equal'}[]} charges signed cents (discounts negative)
+ * @returns {{splits, itemsCents, chargesCents, otherCents, extraCents, breakdown}}
  */
-export function computeItemSplits(total, items) {
+export function computeItemSplits(total, items, charges = []) {
   if (!Array.isArray(items) || items.length === 0) throw new ValidationError('Add at least one item');
   const subtotal = new Map();
   let itemsCents = 0;
@@ -151,11 +155,28 @@ export function computeItemSplits(total, items) {
     itemsCents += it.cents;
     allocate(it.cents, ids.map(() => 1)).forEach((c, k) => subtotal.set(ids[k], (subtotal.get(ids[k]) || 0) + c));
   });
-  const extraCents = total - itemsCents;
   const people = [...subtotal.keys()];
-  const weights = people.map((id) => subtotal.get(id));
-  const extra = extraCents === 0 ? people.map(() => 0) : allocate(Math.abs(extraCents), weights).map((c) => (extraCents < 0 ? -c : c));
-  const splits = people.map((personId, i) => ({ personId, cents: subtotal.get(personId) + extra[i] }));
-  if (splits.some((s) => s.cents < 0)) throw new ValidationError('The discount is larger than the items it applies to');
-  return { splits, itemsCents, extraCents };
+  const sums = people.map((id) => subtotal.get(id));
+  const spread = (amount, mode) => {
+    if (amount === 0) return people.map(() => 0);
+    const parts = allocate(Math.abs(amount), mode === 'equal' ? people.map(() => 1) : sums);
+    return amount < 0 ? parts.map((c) => -c) : parts;
+  };
+
+  const breakdown = Object.fromEntries(people.map((id) => [id, { items: subtotal.get(id), charges: [], other: 0 }]));
+  let chargesCents = 0;
+  charges.forEach((c, i) => {
+    if (!Number.isInteger(c.cents)) throw new ValidationError(`Charge ${i + 1} has an invalid amount`);
+    chargesCents += c.cents;
+    spread(c.cents, c.mode).forEach((v, k) => { breakdown[people[k]].charges[i] = v; });
+  });
+  const otherCents = total - itemsCents - chargesCents;
+  spread(otherCents, 'proportional').forEach((v, k) => { breakdown[people[k]].other = v; });
+
+  const splits = people.map((personId) => {
+    const b = breakdown[personId];
+    return { personId, cents: b.items + b.charges.reduce((a, v) => a + v, 0) + b.other };
+  });
+  if (splits.some((s) => s.cents < 0)) throw new ValidationError('A discount is larger than the items it applies to');
+  return { splits, itemsCents, chargesCents, otherCents, extraCents: total - itemsCents, breakdown };
 }

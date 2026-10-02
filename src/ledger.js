@@ -7,6 +7,15 @@ export const CATEGORIES = [
 ];
 
 const newId = () => crypto.randomUUID();
+export const CHARGE_KINDS = ['tax', 'tip', 'fee', 'discount'];
+const DEFAULT_LABEL = { tax: 'Tax', tip: 'Tip', fee: 'Service charge', discount: 'Discount' };
+
+function toQuantity(v, label) {
+  if (v === undefined || v === null || v === '') return 1;
+  const q = Number(v);
+  if (!Number.isFinite(q) || q <= 0 || q > 9999) throw new ValidationError(`${label}: quantity must be between 0 and 9999`);
+  return Math.round(q * 1000) / 1000;
+}
 
 function str(value, field, { max, required = false } = {}) {
   const s = value === undefined || value === null ? '' : String(value).trim();
@@ -85,12 +94,30 @@ export function normalizeExpense(body, people, existing = null) {
     if (raw.length > 200) throw new ValidationError('Too many items (max 200)');
     const items = raw.map((it, i) => ({
       name: str(it.name, `Item ${i + 1} name`, { max: 100 }),
-      cents: toCents(it.amount),
+      quantity: toQuantity(it.quantity, `Item ${i + 1}`),
+      cents: toCents(it.amount), // line total (quantity x unit price)
       personIds: (it.personIds || []).map(mustKnow),
     }));
-    const r = computeItemSplits(amountCents, items);
+    const rawCharges = Array.isArray(body.charges) ? body.charges : [];
+    if (rawCharges.length > 30) throw new ValidationError('Too many charges (max 30)');
+    const charges = rawCharges.map((c, i) => {
+      const kind = CHARGE_KINDS.includes(c.kind) ? c.kind : null;
+      if (!kind) throw new ValidationError(`Charge ${i + 1}: choose tax, tip, fee or discount`);
+      const cents = toCents(c.amount);
+      if (cents <= 0) throw new ValidationError(`Charge ${i + 1} (${c.label || kind}) must be greater than zero`);
+      return {
+        id: newId(),
+        kind,
+        label: str(c.label || DEFAULT_LABEL[kind], `Charge ${i + 1} label`, { max: 60 }),
+        cents: kind === 'discount' ? -cents : cents,
+        mode: c.mode === 'equal' ? 'equal' : 'proportional',
+      };
+    });
+    const r = computeItemSplits(amountCents, items, charges);
     out.splits = r.splits;
     out.items = items;
+    out.charges = charges;
+    out.otherCents = r.otherCents;
     out.extraCents = r.extraCents;
   } else {
     const participants = (body.participants || []).map((p) => ({ ...p, personId: mustKnow(p.personId) }));
