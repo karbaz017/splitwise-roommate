@@ -513,6 +513,7 @@ function bind() {
     await mutatePerson(() => API.addPerson({ name: $('p-name').value, email: $('p-email').value }));
     $('person-form').reset();
   };
+  bindSplitwise();
   $('settings-form').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -520,6 +521,41 @@ function bind() {
       toast('Settings saved.');
       await refresh();
     } catch (err) { toast(err.message, 'error'); }
+  };
+}
+
+function bindSplitwise() {
+  const box = $('sw-status');
+  const show = (html) => { box.classList.remove('hidden'); box.innerHTML = html; };
+  const storeKey = () => {
+    const v = $('sw-key').value.trim();
+    try { v ? localStorage.setItem('splitwise_token', v) : null; } catch { /* storage blocked: key is just not remembered */ }
+  };
+  try { $('sw-key').value = localStorage.getItem('splitwise_token') || ''; } catch { /* ignore */ }
+  const busy = (on) => ['sw-test', 'sw-import'].forEach((id) => { $(id).disabled = on; });
+
+  $('sw-test').onclick = async () => {
+    storeKey(); busy(true); show('<span class="spin"></span> Checking…');
+    try {
+      const s = await API.splitwiseStatus();
+      if (!s.configured) show('No key entered yet.');
+      else if (s.connected) show(`✔ Connected as ${esc(s.user.name)}${s.serverKey ? ' (server key)' : ''}.`);
+      else show(`✖ ${esc(s.error)}`);
+    } catch (err) { show(`✖ ${esc(err.message)}`); } finally { busy(false); }
+  };
+  $('sw-import').onclick = async () => {
+    storeKey(); busy(true); show('<span class="spin"></span> Importing…');
+    try {
+      const { summary: s } = await API.splitwiseImport();
+      const skipped = Object.entries(s.skipped).map(([k, v]) => `${v} skipped (${esc(k)})`).join(', ');
+      show(`✔ Imported ${s.added} new, ${s.updated} updated, ${s.unchanged} unchanged, ${s.removed} removed${s.peopleAdded ? `; ${s.peopleAdded} people added` : ''}${skipped ? `. ${skipped}` : ''}.`);
+      await refresh();
+    } catch (err) { show(`✖ ${esc(err.message)} Your ledger is unaffected.`); } finally { busy(false); }
+  };
+  $('sw-forget').onclick = () => {
+    try { localStorage.removeItem('splitwise_token'); } catch { /* ignore */ }
+    $('sw-key').value = '';
+    show('Key removed from this browser.');
   };
 }
 

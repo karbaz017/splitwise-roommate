@@ -63,6 +63,7 @@ export function normalizeExpense(body, people, existing = null) {
     receipts: existing?.receipts || [],
     source: existing?.source || 'local',
     externalId: existing?.externalId,
+    externalUpdatedAt: existing?.externalUpdatedAt,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

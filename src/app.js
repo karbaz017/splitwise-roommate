@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { SplitwiseError, importFromSplitwise, makeClient } from './splitwise.js';
 import { ValidationError, netBalances, simplifyDebts } from './money.js';
 import { CATEGORIES, normalizeExpense, normalizePerson } from './ledger.js';
 import {
@@ -36,7 +37,7 @@ function basicAuth(password) {
   };
 }
 
-export async function createApp({ dataDir, password = '' } = {}) {
+export async function createApp({ dataDir, password = '', splitwiseKey = '', fetchImpl = fetch } = {}) {
   const store = await new Store(dataDir).init();
   const app = express();
   app.disable('x-powered-by');
@@ -233,6 +234,33 @@ export async function createApp({ dataDir, password = '' } = {}) {
       transfers: simplifyDebts(net),
     });
   });
+
+  // ---- Splitwise (optional) -------------------------------------------------
+  // Never required: failures here are reported, but the rest of the app is unaffected.
+  const swToken = (req) => String(req.headers['x-splitwise-token'] || splitwiseKey || '').trim();
+
+  app.get('/api/splitwise/status', wrap(async (req, res) => {
+    const token = swToken(req);
+    if (!token) return res.json({ configured: false, connected: false, serverKey: false });
+    try {
+      const { user } = await makeClient(token, fetchImpl)('get_current_user');
+      res.json({ configured: true, connected: true, serverKey: !!splitwiseKey && !req.headers['x-splitwise-token'], user: { name: [user.first_name, user.last_name].filter(Boolean).join(' '), email: user.email } });
+    } catch (err) {
+      if (!(err instanceof SplitwiseError)) throw err;
+      res.json({ configured: true, connected: false, error: err.message });
+    }
+  }));
+
+  app.post('/api/splitwise/import', wrap(async (req, res) => {
+    const token = swToken(req);
+    if (!token) throw Object.assign(new Error('No Splitwise API key configured. Add one in Settings.'), { status: 400 });
+    try {
+      res.json({ summary: await importFromSplitwise(store, token, fetchImpl) });
+    } catch (err) {
+      if (err instanceof SplitwiseError) return res.status(err.status).json({ error: 'splitwise_error', message: err.message });
+      throw err;
+    }
+  }));
 
   // ---- Exports --------------------------------------------------------------
   const csvCell = (v) => {

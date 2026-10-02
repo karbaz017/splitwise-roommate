@@ -1,6 +1,6 @@
 // Client for the local ledger API.
-async function request(url, { method = 'GET', body, form } = {}) {
-  const opts = { method, headers: {} };
+async function request(url, { method = 'GET', body, form, headers = {} } = {}) {
+  const opts = { method, headers: { ...headers } };
   if (form) opts.body = form;
   else if (body !== undefined) {
     opts.headers['Content-Type'] = 'application/json';
@@ -24,7 +24,13 @@ const qs = (params) => {
   return str ? `?${str}` : '';
 };
 
+const swHeaders = () => {
+  try { const k = localStorage.getItem('splitwise_token'); return k ? { 'X-Splitwise-Token': k } : {}; } catch { return {}; }
+};
+
 export const API = {
+  splitwiseStatus: () => request('/api/splitwise/status', { headers: swHeaders() }),
+  splitwiseImport: () => request('/api/splitwise/import', { method: 'POST', headers: swHeaders() }),
   settings: () => request('/api/settings'),
   saveSettings: (b) => request('/api/settings', { method: 'PUT', body: b }),
   people: () => request('/api/people'),

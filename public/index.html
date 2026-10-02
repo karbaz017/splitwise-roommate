@@ -112,6 +112,21 @@
             </div>
             <div class="settings-actions"><button class="btn btn-primary" type="submit">Save</button></div>
           </form>
+          <div class="settings-card" id="sw-card">
+            <h3><i data-lucide="plug"></i> Splitwise <span class="badge">optional</span></h3>
+            <p class="settings-desc">This ledger works on its own. If you have existing history in Splitwise you can import it here (read-only, safe to repeat). Splitwise's API now needs a Pro subscription on the developer account, so if this fails nothing else is affected.</p>
+            <div class="form-group">
+              <label for="sw-key">Personal API key</label>
+              <input type="password" id="sw-key" autocomplete="off" placeholder="Paste key from secure.splitwise.com/apps">
+            </div>
+            <div class="settings-actions">
+              <button class="btn btn-outline" id="sw-test" type="button">Test connection</button>
+              <button class="btn btn-primary" id="sw-import" type="button">Import from Splitwise</button>
+              <button class="btn btn-outline" id="sw-forget" type="button">Forget key</button>
+            </div>
+            <div class="detect hidden" id="sw-status" role="status"></div>
+            <p class="muted">The key is kept only in this browser (or in <code>SPLITWISE_API_KEY</code> on the server) and is sent only to this server. Only entries in the household currency whose shares add up are imported; re-importing updates changed entries.</p>
+          </div>
           <div class="settings-card">
             <h3><i data-lucide="database"></i> Your data</h3>
             <p class="settings-desc">Everything lives in the server's <code>data/</code> folder (<code>ledger.json</code> plus a <code>receipts/</code> folder). Back that folder up and you have backed up everything.</p>
