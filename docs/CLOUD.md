@@ -46,6 +46,11 @@ One-time setup (about 5 minutes):
 5. Settings → Cloud sync → (optionally enter an **encryption passphrase**) → **Connect Dropbox** → approve in Dropbox. You land back in the app, synced.
 6. On another device: run the app with the same `DROPBOX_APP_KEY`, press **Connect Dropbox**, sign in to the same Dropbox and use the same passphrase.
 
+Troubleshooting:
+- **"Error connecting app: No scope requested can be granted for this app" (`scope_not_granted`)**: the permissions are not enabled on your Dropbox app. Open its **Permissions** tab, tick `files.content.read` and `files.content.write`, and press **Submit** (ticking alone is not enough), then press Connect again.
+- **"redirect_uri" errors**: the Redirect URI on the app's Settings tab must match exactly what Settings → Cloud sync shows, including the port and `http`/`https`.
+- **"Dropbox denied access" after connecting**: you changed permissions after signing in. Disconnect and connect again so the new permissions apply.
+
 Notes:
 - The long-lived refresh token is stored in `data/dropbox-auth.json` (owner-only permissions) and is never uploaded. Keep `data/` private. **Disconnect Dropbox** revokes it and deletes the file; your data stays.
 - If Dropbox already holds a ledger when you connect, it is loaded and your current local data is saved next to it as `ledger.conflict-<time>.json`. If Dropbox is empty, your local data is uploaded.

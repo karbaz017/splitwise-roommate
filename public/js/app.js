@@ -100,7 +100,8 @@ async function renderSync(fresh) {
     $('sync-body').innerHTML = `<p class="muted">Sign in with Dropbox to keep your ledger and receipts in a private app folder in your Dropbox. Use the same Dropbox on any other device to see the same data. The app can only see its own folder, never the rest of your Dropbox.</p>
        <div class="field-group"><label for="dbx-pass">Encryption passphrase <span class="muted">(recommended)</span></label><input class="field" type="password" id="dbx-pass" autocomplete="new-password" placeholder="Same passphrase on every device (8+ characters)"></div>
        <div class="actions"><button class="btn btn-primary" id="dbx-connect" type="button">${ic('cloud', 'sm')} Connect Dropbox</button></div>
-       <p class="muted">With a passphrase, Dropbox only stores unreadable data, and it can’t be recovered if you lose it. If your Dropbox already holds a ledger it is loaded here, and your current local data is saved as a backup file.</p>`;
+       <p class="muted">With a passphrase, Dropbox only stores unreadable data, and it can’t be recovered if you lose it. If your Dropbox already holds a ledger it is loaded here, and your current local data is saved as a backup file.</p>
+       <p class="muted">Dropbox says <em>“scope not granted”</em>? On your app’s <strong>Permissions</strong> tab tick <code>files.content.read</code> and <code>files.content.write</code> and press <strong>Submit</strong>, then try again.</p>`;
   } else {
     $('sync-body').innerHTML = `<p class="muted">Right now your data lives only on the machine running this app. To use it from other devices, or keep an off-site copy, turn on cloud sync. The nicest way is <strong>Sign in with Dropbox</strong>; it needs a one-time setup (about 5 minutes):</p>
        <ol class="steps">
