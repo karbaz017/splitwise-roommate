@@ -29,6 +29,8 @@ const swHeaders = () => {
 };
 
 export const API = {
+  syncStatus: () => request('/api/sync/status'),
+  syncNow: () => request('/api/sync/now', { method: 'POST' }),
   recurring: () => request('/api/recurring'),
   addRecurring: (b) => request('/api/recurring', { method: 'POST', body: b }),
   updateRecurring: (id, b) => request(`/api/recurring/${id}`, { method: 'PATCH', body: b }),

@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.4.0]
+### Added
+- Cloud sync to a cloud-drive folder (`SYNC_DIR`) or any S3-compatible bucket, with optional end-to-end encryption (`SYNC_PASSPHRASE`); pull-before-write, offline tolerance, conflict copies, live refresh, status pill and Settings card
+### Fixed
+- Writes that change nothing no longer bump the ledger revision
+
 ## [2.3.0]
 ### Added
 - Tax, tip, service fee and discount lines are individual, editable charges (type, label, amount, split rule), with tip-% shortcuts and an explicit "not accounted for" line

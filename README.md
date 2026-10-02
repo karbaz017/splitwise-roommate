@@ -18,6 +18,7 @@ A self-hosted, open-source **single place for all money matters with your roomma
 - **Recurring bills**: tick "Repeat every month" on an expense (rent, internet); entries are created automatically, catching up on months missed while the server was off.
 - **Duplicate guard**: warns when the same receipt file is already attached to another entry.
 - **Optional Splitwise import**: read-only, repeatable, failure-tolerant.
+- **Cloud sync, so it works from any device**: mirror the ledger and receipts to a Dropbox/Drive/iCloud/OneDrive folder or an S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3), optionally end-to-end encrypted. Devices pick up each other's changes, offline edits are kept and uploaded later, and conflicts never lose data. See [docs/CLOUD.md](docs/CLOUD.md).
 - **Exports**: CSV and full JSON. Your data is plain files in `data/`.
 - Search and filter by text, person, category and month; entries grouped by day; modern responsive UI with light/dark themes, mobile bottom navigation and avatars; optional password.
 
@@ -39,9 +40,9 @@ Requires Node.js 20+. Docker: `docker compose up -d` (data persists in a volume)
 
 Run it on any always-on machine (a Raspberry Pi, home server, or small VPS) and open it from each roommate's phone or laptop. **Set `APP_PASSWORD`** and put it behind HTTPS (e.g. Caddy or a Cloudflare Tunnel) if it is reachable beyond your home network. There are no per-user accounts: everyone with the password can edit the shared ledger, and "Viewing as" only changes whose perspective the dashboard shows.
 
-### Back up
+### Back up / use on other devices
 
-Copy the `data/` folder (`ledger.json` + `receipts/`). A `ledger.json.bak` of the previous save is kept automatically.
+Turn on [cloud sync](docs/CLOUD.md) to keep an off-site copy and use the same ledger from any device. Without it, copy the `data/` folder (`ledger.json` + `receipts/`). A `ledger.json.bak` of the previous save is kept automatically.
 
 ## Configuration
 
@@ -51,6 +52,8 @@ Copy the `data/` folder (`ledger.json` + `receipts/`). A `ledger.json.bak` of th
 | `DATA_DIR` | `./data` | Ledger and receipt storage |
 | `APP_PASSWORD` | _(none)_ | Require HTTP Basic auth (any username) |
 | `SPLITWISE_API_KEY` | _(none)_ | Server-side key for the optional import |
+| `SYNC_DIR` / `S3_*` | _(none)_ | Cloud sync location ([docs/CLOUD.md](docs/CLOUD.md)) |
+| `SYNC_PASSPHRASE` | _(none)_ | End-to-end encrypt synced data |
 | `ANTHROPIC_API_KEY` | _(none)_ | Enables optional AI receipt reading |
 | `ANTHROPIC_MODEL` | `claude-haiku-4-5-20251001` | Model used for AI reading |
 
@@ -60,7 +63,7 @@ Without `ANTHROPIC_API_KEY`, no receipt ever leaves your server and browser (the
 
 ## Docs
 
-[Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Features](docs/FEATURES.md) · [Setup](docs/SETUP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
+[Cloud sync](docs/CLOUD.md) · [Architecture](docs/ARCHITECTURE.md) · [API](docs/API.md) · [Features](docs/FEATURES.md) · [Setup](docs/SETUP.md) · [FAQ](docs/FAQ.md) · [Contributing](CONTRIBUTING.md)
 
 ## Development
 

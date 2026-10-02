@@ -24,7 +24,7 @@ const EMPTY = () => ({
  * changed while apart, the remote wins and the local version is kept as a conflict copy.
  */
 export class Store {
-  constructor(dataDir, { remote = null, syncCheckMs = 10_000 } = {}) {
+  constructor(dataDir, { remote = null, syncCheckMs = 5_000 } = {}) {
     this.dir = dataDir;
     this.file = path.join(dataDir, 'ledger.json');
     this.stateFile = path.join(dataDir, 'sync-state.json');

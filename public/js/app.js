@@ -12,6 +12,8 @@ const state = {
   people: [],
   me: localStorage.getItem('ledger_me') || '',
   ai: false, // server has an AI key
+  sync: null, // cloud sync status from the server
+  lastRev: null,
   tab: 'dashboard',
   page: 0,
   total: 0,
@@ -65,7 +67,61 @@ function renderChrome() {
 async function refresh() {
   await load();
   await renderTab();
+  renderSync();
 }
+
+// ---------------------------------------------------------------- cloud sync
+const ago = (iso) => {
+  if (!iso) return 'never';
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86400)} d ago`;
+};
+
+async function renderSync(fresh) {
+  try { state.sync = fresh || await API.syncStatus(); } catch { return; }
+  const st = state.sync;
+  const pill = $('sync-pill');
+  pill.classList.toggle('hidden', !st.enabled);
+  if (st.enabled) {
+    const bad = !!st.lastError || st.pending;
+    pill.className = `sync-pill ${bad ? 'warn' : 'ok'}`;
+    pill.innerHTML = `${ic('cloud', 'sm')} ${st.lastError ? 'Sync problem' : st.pending ? 'Waiting to sync' : `Synced ${ago(st.lastSyncedAt)}`}`;
+  }
+  $('sync-badge').textContent = st.enabled ? (st.encrypted ? 'on · encrypted' : 'on') : 'off';
+  $('sync-body').innerHTML = st.enabled
+    ? `<p class="muted">Your ledger and receipts are mirrored to <strong>${esc(st.location)}</strong>${st.encrypted ? ' and encrypted before they leave this machine' : ''}. Run the app on any device with the same settings and you’ll see the same data.</p>
+       <div class="line"><div class="grow">Last synced</div><strong>${esc(ago(st.lastSyncedAt))}</strong></div>
+       <div class="line"><div class="grow">Pending changes</div><strong>${st.pending ? 'yes (will upload when online)' : 'none'}</strong></div>
+       ${st.lastError ? `<div class="form-error">${esc(st.lastError)}</div>` : ''}
+       ${st.conflictFile ? `<div class="callout">Two devices changed things while apart. The cloud version was kept; your other version is saved on this device as <code>${esc(st.conflictFile)}</code>.</div>` : ''}
+       <div class="actions"><button class="btn btn-primary" id="sync-now" type="button">Sync now</button></div>`
+    : `<p class="muted">Right now your data lives only on the machine running this app. To use it from other devices, or to keep an off-site copy, turn on cloud sync by setting environment variables (see <code>docs/CLOUD.md</code>). The simplest option is a folder your cloud drive already syncs:</p>
+       <pre class="snippet">SYNC_DIR=~/Dropbox/RoommateLedger
+SYNC_PASSPHRASE=a long secret phrase   # optional: end-to-end encryption</pre>
+       <p class="muted">Or any S3-compatible storage (Backblaze B2, Cloudflare R2, AWS S3) with <code>S3_BUCKET</code>, <code>S3_ENDPOINT</code>, <code>S3_ACCESS_KEY_ID</code>, <code>S3_SECRET_ACCESS_KEY</code>.</p>`;
+  const btn = $('sync-now');
+  if (btn) btn.onclick = syncNow;
+}
+
+async function syncNow() {
+  try {
+    const st = await API.syncNow();
+    await renderSync(st);
+    if (st.rev !== state.lastRev) { state.lastRev = st.rev; await load(); await renderTab(); }
+    toast(st.lastError ? `Sync problem: ${st.lastError}` : 'Synced.', st.lastError ? 'error' : 'success');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
+// Pick up changes made on other devices while this page stays open.
+setInterval(async () => {
+  if (document.hidden || !state.sync?.enabled || document.body.classList.contains('modal-open')) return;
+  try {
+    const st = await API.syncNow();
+    await renderSync(st);
+    if (state.lastRev !== null && st.rev !== state.lastRev) { state.lastRev = st.rev; await load(); await renderTab(); }
+    state.lastRev = st.rev;
+  } catch { /* offline: try again next tick */ }
+}, 20000);
 
 // ---------------------------------------------------------------- tabs
 function switchTab(tab) {
@@ -1054,4 +1110,5 @@ async function mutatePerson(fn) {
 }
 
 bind();
-load().then(renderTab).catch((err) => toast(err.message, 'error'));
+$('sync-pill').onclick = syncNow;
+load().then(renderTab).then(() => renderSync().then(() => { state.lastRev = state.sync?.rev ?? null; })).catch((err) => toast(err.message, 'error'));

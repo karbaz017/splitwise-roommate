@@ -37,6 +37,7 @@
       <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></symbol>
       <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
       <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4.5 4.5 0 0 1-.6-8.96A6 6 0 0 1 18 8.5a4 4 0 0 1-.5 9.5z"/></symbol>
       <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     </defs>
   </svg>
@@ -48,6 +49,7 @@
         <span class="brand-mark"><svg class="i"><use href="#i-coins"/></svg></span>
         <span class="brand-name" id="household-name">Roommate Ledger</span>
       </div>
+      <button class="sync-pill hidden" id="sync-pill" type="button" title="Cloud sync status. Click to sync now"></button>
 
       <nav class="nav" id="nav" aria-label="Main">
         <button class="nav-item active" data-tab="dashboard"><svg class="i"><use href="#i-layout"/></svg><span>Home</span></button>
@@ -166,6 +168,11 @@
             <h3 class="card-title"><svg class="i"><use href="#i-repeat"/></svg> Recurring bills</h3>
             <p class="muted">Tick “Repeat every month” when adding an expense (rent, internet…) and it’s created automatically each month.</p>
             <div id="rec-list"></div>
+          </div>
+
+          <div class="card" id="sync-card">
+            <h3 class="card-title"><svg class="i"><use href="#i-cloud"/></svg> Cloud sync <span class="pill" id="sync-badge">off</span></h3>
+            <div id="sync-body"></div>
           </div>
 
           <div class="card" id="sw-card">

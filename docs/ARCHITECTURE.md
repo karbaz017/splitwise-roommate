@@ -10,7 +10,8 @@ Browser (vanilla ES modules)  ──HTTP/JSON──▶  Express (src/app.js)  �
 | --- | --- |
 | `src/money.js` | Integer-cent maths: split engine (largest-remainder), net balances, debt simplification |
 | `src/ledger.js` | Validation and normalisation of people and expenses/settlements |
-| `src/store.js` | JSON store with serialized, atomic writes (temp file + rename), `.bak`, rollback on failure |
+| `src/store.js` | JSON store with serialized, atomic writes, `.bak`, rollback on failure; optional cloud sync (revision numbers, pull-before-write, offline queue, conflict copies) |
+| `src/remote.js` | Cloud backends: folder, S3-compatible, and an AES-256-GCM encryption wrapper |
 | `src/receipts.js` | Upload handling, file-signature sniffing, safe naming and storage |
 | `src/recurring.js` | Monthly rules, catch-up generation, idempotent via `externalId` |
 | `src/ai.js` | Optional Anthropic vision reader; validates/normalises model output |

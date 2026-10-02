@@ -345,3 +345,10 @@ textarea.field { resize: vertical; }
 #e-restore { flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: space-between; margin: 12px 0 0; background: var(--warn-soft); }
 #e-restore small { color: var(--text-2); }
 .modal-foot { flex-wrap: wrap; }
+
+/* ---------- cloud sync ---------- */
+.sync-pill { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin: -8px 8px 0; padding: 4px 10px; border-radius: var(--r-pill); border: 0; font-size: .74rem; font-weight: 600; cursor: pointer; }
+.sync-pill.ok { background: var(--pos-soft); color: var(--pos); }
+.sync-pill.warn { background: var(--warn-soft); color: var(--warn); }
+.snippet { background: var(--surface-2); border-radius: var(--r-sm); padding: 12px 14px; font: .82rem/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-x: auto; margin: 8px 0 12px; white-space: pre; }
+@media (max-width: 860px) { .sync-pill { display: none !important; } }
