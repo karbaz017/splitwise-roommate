@@ -178,6 +178,7 @@ const SUGGESTION = /(suggest|recommend|guide|if\s+you|option|calculator)/i;
 
 const labelOf = (line, fallback) => {
   const l = line.replace(/[$€£₹¥]?\s?\d[\d.,]*\s*%?/g, ' ').replace(/[:*_=-]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (/^tax$/i.test(l)) return 'Sales tax';
   return l.length >= 2 ? titleCase(l).slice(0, 60) : fallback;
 };
 

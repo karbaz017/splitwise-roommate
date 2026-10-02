@@ -20,7 +20,9 @@ const state = {
   editing: null, // expense being edited (or null)
   settleEditing: null,
   rows: [], // split-editor rows for the expense modal
-  items: [], // item-by-item rows: {name, amount, personIds}
+  items: [], // item rows: {name, qty, unit, total, personIds}
+  charges: [], // tax / tip / fee / discount rows: {kind, label, amount, mode}
+  totalAuto: true, // in item mode the total follows items + charges until the user types one
 };
 
 const active = () => state.people.filter((p) => p.active);
@@ -191,7 +193,12 @@ function expenseCard(e) {
   const payers = e.paidBy.map((p) => youOr(p.personId)).join(' & ');
   const splits = e.splits.map((s) => `<div class="split-line"><span>${avatar(nameOf(s.personId), 'sm')} ${esc(youOr(s.personId))}</span><span>${e.type === 'settlement' ? 'received' : 'owes'} ${money(s.cents)}</span></div>`).join('');
   const receipts = (e.receipts || []).map((r) => `<a class="receipt-mini" href="${API.receiptUrl(r.file)}" target="_blank" rel="noopener" title="${esc(r.name)}">${r.mime.startsWith('image/') && r.mime !== 'image/heic' ? `<img src="${API.receiptUrl(r.file)}" alt="${esc(r.name)}" loading="lazy">` : `<span>${r.mime === 'application/pdf' ? 'PDF' : 'IMG'}</span>`}</a>`).join('');
-  const itemsHtml = e.items?.length ? `<div class="items-detail">${e.items.map((it) => `<div class="split-line"><span>${esc(it.name || 'Item')} <span class="muted">· ${esc(it.personIds.map(youOr).join(', '))}</span></span><span>${money(it.cents)}</span></div>`).join('')}${e.extraCents ? `<div class="split-line"><span>Tax, tip &amp; fees</span><span>${money(e.extraCents)}</span></div>` : ''}</div>` : '';
+  const chargeLine = (label, cents, note = '') => `<div class="split-line"><span>${esc(label)}${note ? ` <span class="muted">· ${esc(note)}</span>` : ''}</span><span>${cents < 0 ? '−' : ''}${money(Math.abs(cents))}</span></div>`;
+  const itemsHtml = e.items?.length ? `<div class="items-detail">
+      ${e.items.map((it) => `<div class="split-line"><span>${it.quantity > 1 ? `${esc(it.quantity)} × ` : ''}${esc(it.name || 'Item')} <span class="muted">· ${esc(it.personIds.length === e.splits.length && e.splits.every((x) => it.personIds.includes(x.personId)) ? 'everyone' : it.personIds.map(youOr).join(', '))}</span></span><span>${money(it.cents)}</span></div>`).join('')}
+      ${(e.charges || []).map((c) => chargeLine(c.label, c.cents, c.mode === 'equal' ? 'split equally' : 'by items')).join('')}
+      ${e.charges ? (e.otherCents ? chargeLine('Other / rounding', e.otherCents) : '') : (e.extraCents ? chargeLine('Tax, tip & fees', e.extraCents) : '')}
+    </div>` : '';
   const repeat = e.source === 'recurring' ? ` <span class="clip" title="Recurring">${ic('repeat', 'sm')}</span>` : '';
   return `<div class="exp" data-id="${esc(e.id)}">
     <div class="exp-main" data-toggle>
@@ -283,9 +290,16 @@ function openExpense(expense = null) {
   const first = expense?.splits[0]?.cents;
   const equalish = !expense || expense.splits.every((s) => Math.abs(s.cents - first) <= 1);
   $('e-method').value = expense?.splitMethod === 'items' && expense.items ? 'items' : equalish ? 'equal' : 'exact';
-  state.items = expense?.splitMethod === 'items' && expense.items
-    ? expense.items.map((it) => ({ name: it.name, amount: it.cents / 100, personIds: [...it.personIds] }))
-    : [];
+  state.pool = pool;
+  state.totalAuto = !expense;
+  state.items = [];
+  state.charges = [];
+  if (expense?.splitMethod === 'items' && expense.items) {
+    state.items = expense.items.map((it) => newItem(it.name, it.cents / 100, it.quantity || 1, [...it.personIds]));
+    state.charges = (expense.charges || []).map((c) => newCharge(c.kind, c.label, Math.abs(c.cents) / 100, c.mode));
+    // Entries saved before charges were itemised carried one combined "extra" amount.
+    if (!expense.charges && expense.extraCents) state.charges.push(newCharge(expense.extraCents > 0 ? 'fee' : 'discount', 'Tax, tip & fees', Math.abs(expense.extraCents) / 100));
+  }
   state.rows = pool.map((p) => {
     const s = expense?.splits.find((x) => x.personId === p.id);
     const paid = expense?.paidBy.find((x) => x.personId === p.id);
@@ -390,7 +404,8 @@ function buildExpensePayload() {
       description: $('e-desc').value, amount: $('e-amount').value, date: $('e-date').value,
       category: $('e-category').value, notes: $('e-notes').value, splitMethod: 'items',
       paidBy: [{ personId: $('e-paid-by').value }],
-      items: state.items.map((it) => ({ name: it.name, amount: it.amount, personIds: it.personIds })),
+      items: state.items.map((it) => ({ name: it.name, quantity: Number(it.qty) || 1, amount: it.total, personIds: it.personIds })),
+      charges: state.charges.map((c) => ({ kind: c.kind, label: c.label, amount: c.amount, mode: c.mode })),
     };
   }
   readRows();
@@ -449,24 +464,67 @@ async function submitExpense(e) {
 }
 
 // ---------------------------------------------------------------- item-by-item editor
-const newItem = (name = '', amount = '', personIds = null) => ({
-  name, amount, personIds: personIds || (state.pool || active()).filter((p) => p.active).map((p) => p.id),
-});
+// Row: quantity x unit price = line total. The line total is what gets split; editing
+// quantity or unit price recalculates it, editing the total recalculates the unit price.
+const everyone = () => (state.pool || active()).filter((p) => p.active).map((p) => p.id);
+const newItem = (name = '', total = '', qty = 1, personIds = null) => {
+  const t = total === '' ? '' : Number(total);
+  return { name, qty: String(qty), unit: t === '' ? '' : fmtUnit(t / (Number(qty) || 1)), total: t === '' ? '' : t.toFixed(2), personIds: personIds || everyone() };
+};
+const fmtUnit = (n) => (Math.abs(n * 100 - Math.round(n * 100)) < 1e-6 ? n.toFixed(2) : n.toFixed(3));
+const KINDS = { tax: 'Tax', tip: 'Tip / gratuity', fee: 'Service / delivery fee', discount: 'Discount / coupon' };
+const DEFAULT_LABEL = { tax: 'Sales tax', tip: 'Tip', fee: 'Service charge', discount: 'Discount' };
+const newCharge = (kind, label, amount = '', mode) => ({ kind, label: label || DEFAULT_LABEL[kind], amount: amount === '' ? '' : Number(amount).toFixed(2), mode: mode || (kind === 'tip' ? 'equal' : 'proportional') });
+
+const centsOrNull = (v) => { try { return v === '' ? null : toCents(v); } catch { return null; } };
+const itemsCents = () => state.items.reduce((a, it) => a + (centsOrNull(it.total) || 0), 0);
+const signedCharges = () => state.charges.map((c) => ({ kind: c.kind, label: c.label, cents: (c.kind === 'discount' ? -1 : 1) * (centsOrNull(c.amount) || 0), mode: c.mode }));
+const chargesCents = () => signedCharges().reduce((a, c) => a + c.cents, 0);
+
+function sharedLabel(it) {
+  const pool = (state.pool || active()).filter((p) => p.active);
+  if (it.personIds.length === 0) return { text: 'Nobody. Tap a name to assign it', bad: true };
+  if (it.personIds.length === pool.length && pool.every((p) => it.personIds.includes(p.id))) return { text: 'Everyone, split equally', bad: false };
+  const names = it.personIds.map((id) => nameOf(id));
+  return { text: `${names.slice(0, 3).join(', ')}${names.length > 3 ? ` +${names.length - 3}` : ''}${names.length > 1 ? ', split equally' : ' only'}`, bad: false };
+}
 
 function renderItems() {
   const pool = state.pool || active();
   $('e-items').innerHTML = `
-    <div class="items-head"><span>Item</span><span>Price</span><span>Shared by (tap to toggle)</span><span></span></div>
-    ${state.items.map((it, i) => `<div class="item-row" data-i="${i}">
+    <p class="hint">Every item starts <strong>shared by everyone</strong>. Tap a name to give an item to just that person, then tap more names to share it between them.</p>
+    <div class="items-head"><span>Item</span><span>Qty</span><span>Unit price</span><span>Total</span><span></span></div>
+    ${state.items.map((it, i) => {
+      const sl = sharedLabel(it);
+      return `<div class="item-row" data-i="${i}">
       <input type="text" data-f="name" value="${esc(it.name)}" maxlength="100" placeholder="Item name" aria-label="Item name">
-      <input type="number" data-f="amount" value="${esc(it.amount)}" step="0.01" min="0.01" inputmode="decimal" placeholder="0.00" aria-label="Item price">
-      <div class="chips">${pool.map((p) => `<button type="button" class="chip ${it.personIds.includes(p.id) ? 'on' : ''}" data-chip="${esc(p.id)}" aria-pressed="${it.personIds.includes(p.id)}">${esc(p.name)}</button>`).join('')}
-        <button type="button" class="chip all" data-all>Everyone</button></div>
+      <input type="number" data-f="qty" value="${esc(it.qty)}" step="any" min="0" inputmode="decimal" aria-label="Quantity" title="Quantity">
+      <input type="number" data-f="unit" value="${esc(it.unit)}" step="0.01" min="0" inputmode="decimal" placeholder="0.00" aria-label="Unit price" title="Price per unit">
+      <input type="number" data-f="total" value="${esc(it.total)}" step="0.01" min="0" inputmode="decimal" placeholder="0.00" aria-label="Line total" title="Line total (qty × unit price)">
       <button type="button" class="receipt-remove" data-del-item aria-label="Remove item">&times;</button>
-    </div>`).join('')}
+      <div class="item-share">
+        <div class="chips">${pool.map((p) => `<button type="button" class="chip ${it.personIds.includes(p.id) ? 'on' : ''}" data-chip="${esc(p.id)}" aria-pressed="${it.personIds.includes(p.id)}">${it.personIds.includes(p.id) ? '✓ ' : ''}${esc(p.name)}</button>`).join('')}
+          <button type="button" class="chip all" data-all>Everyone</button></div>
+        <span class="share-text ${sl.bad ? 'bad' : ''}" data-share-text>Shared by: ${esc(sl.text)}</span>
+      </div>
+    </div>`;
+    }).join('')}
+    <div class="items-actions"><button type="button" class="btn btn-ghost btn-sm" id="e-add-item">+ Add item</button></div>
+
+    <h4 class="sub-head">Tax, tip &amp; other charges</h4>
+    <div id="e-charges">${state.charges.map((c, i) => `<div class="charge-row" data-c="${i}">
+      <div class="select"><select data-f="kind" aria-label="Charge type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${c.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+      <input type="text" data-f="label" value="${esc(c.label)}" maxlength="60" placeholder="Label" aria-label="Charge label">
+      <input type="number" data-f="amount" value="${esc(c.amount)}" step="0.01" min="0" inputmode="decimal" placeholder="0.00" aria-label="Charge amount">
+      <div class="select"><select data-f="mode" aria-label="How to split this charge"><option value="proportional" ${c.mode === 'proportional' ? 'selected' : ''}>By what each person ordered</option><option value="equal" ${c.mode === 'equal' ? 'selected' : ''}>Equally</option></select></div>
+      <button type="button" class="receipt-remove" data-del-charge aria-label="Remove charge">&times;</button>
+      ${c.kind === 'tip' ? `<div class="tip-pct">Tip as % of items: ${[10, 15, 18, 20].map((n) => `<button type="button" class="chip" data-tip-pct="${n}">${n}%</button>`).join('')}</div>` : ''}
+    </div>`).join('') || '<p class="muted">No tax, tip or fees added.</p>'}</div>
     <div class="items-actions">
-      <button type="button" class="btn btn-ghost btn-sm" id="e-add-item">+ Add item</button>
-      <button type="button" class="btn btn-ghost btn-sm hidden" id="e-use-items-total">Set total to items</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-add-charge="tax">+ Tax</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-add-charge="tip">+ Tip</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-add-charge="fee">+ Service fee</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-add-charge="discount">+ Discount</button>
     </div>
     <div class="items-summary" id="e-items-summary"></div>`;
   updateItemsSummary();
@@ -475,53 +533,92 @@ function renderItems() {
 function updateItemsSummary() {
   const box = $('e-items-summary');
   if (!box) return;
+  const itemsTotal = itemsCents();
+  const charges = signedCharges();
+  const chargesTotal = chargesCents();
+  if (state.totalAuto) $('e-amount').value = itemsTotal + chargesTotal > 0 ? ((itemsTotal + chargesTotal) / 100).toFixed(2) : '';
   const total = Math.round((parseFloat($('e-amount').value) || 0) * 100);
-  let itemsCents = 0;
-  let bad = false;
-  const items = state.items.map((it) => {
-    let cents = 0;
-    try { cents = toCents(it.amount); } catch { bad = true; }
-    if (cents <= 0 || it.personIds.length === 0) bad = true;
-    itemsCents += Math.max(cents, 0);
-    return { cents, personIds: it.personIds, name: it.name };
-  });
-  const extra = total - itemsCents;
-  $('e-use-items-total')?.classList.toggle('hidden', extra === 0 || itemsCents <= 0);
-  let html = `<div class="sum-line"><span>Items</span><strong>${money(itemsCents)}</strong></div>
-    <div class="sum-line"><span>Tax, tip, fees ${extra < 0 ? '(discount)' : ''} — shared in proportion</span><strong>${money(extra)}</strong></div>`;
+  const other = total - itemsTotal - chargesTotal;
+  let bad = state.items.some((it) => !(centsOrNull(it.total) > 0) || it.personIds.length === 0 || !(Number(it.qty) > 0));
+  bad = bad || state.charges.some((c) => !(centsOrNull(c.amount) > 0));
+
+  let html = `<div class="sum-line"><span>Items subtotal</span><strong>${money(itemsTotal)}</strong></div>`;
+  html += charges.map((c) => `<div class="sum-line"><span>${esc(c.label || KINDS[c.kind])} <small>(${c.mode === 'equal' ? 'equal' : 'by items'})</small></span><strong>${c.cents < 0 ? '−' : '+'}${money(Math.abs(c.cents))}</strong></div>`).join('');
+  if (other !== 0 && total > 0) {
+    html += `<div class="sum-line warn"><span>Not accounted for (rounding / unlisted charge)<br><small>Shared in proportion. Add it as a charge to be exact.</small></span><strong>${other < 0 ? '−' : '+'}${money(Math.abs(other))}</strong></div>
+      <div class="sum-actions"><button type="button" class="btn btn-ghost btn-sm" data-other-to-charge>Add as ${other > 0 ? 'fee' : 'discount'}</button><button type="button" class="btn btn-ghost btn-sm" data-auto-total>Set total to ${money(itemsTotal + chargesTotal)}</button></div>`;
+  }
+  html += `<div class="sum-line total"><span>Total ${state.totalAuto ? '<small>(calculated)</small>' : ''}</span><strong>${money(total)}</strong></div>`;
+
   let ok = !bad && total > 0;
   if (ok) {
     try {
-      const r = computeItemSplits(total, items);
-      html += r.splits.map((s) => `<div class="sum-line person"><span>${esc(youOr(s.personId))}</span><strong>${money(s.cents)}</strong></div>`).join('');
+      const r = computeItemSplits(total, state.items.map((it) => ({ cents: centsOrNull(it.total), personIds: it.personIds, name: it.name })), charges);
+      const order = (id) => state.people.findIndex((p) => p.id === id);
+      html += `<div class="sum-people">` + [...r.splits].sort((x, y) => order(x.personId) - order(y.personId)).map((s) => {
+        const b = r.breakdown[s.personId];
+        const parts = [`items ${money(b.items)}`, ...charges.map((c, i) => (b.charges[i] ? `${c.label || KINDS[c.kind]} ${b.charges[i] < 0 ? '−' : ''}${money(Math.abs(b.charges[i]))}` : '')).filter(Boolean), b.other ? `other ${money(b.other, { sign: true })}` : ''].filter(Boolean);
+        return `<div class="sum-person"><div class="sum-line person"><span>${avatar(nameOf(s.personId), 'sm')} ${esc(youOr(s.personId))}</span><strong>${money(s.cents)}</strong></div><div class="sum-detail">${esc(parts.join(' · '))}</div></div>`;
+      }).join('') + `</div>`;
     } catch (err) { ok = false; html += `<div class="sum-line err">${esc(err.message)}</div>`; }
-  } else if (bad) html += '<div class="sum-line err">Every item needs a price and at least one person.</div>';
+  } else if (bad) html += '<div class="sum-line err">Every item needs a quantity, a price and at least one person; every charge needs an amount.</div>';
   $('e-validation').innerHTML = `<span class="val-dot ${ok ? 'dot-success' : 'dot-error'}"></span> ${ok ? 'Looks good' : 'Check the items'}`;
   box.innerHTML = html;
 }
 
 function bindItems() {
   const root = $('e-items');
+  const recalcRow = (row, it, field) => {
+    const q = Number(it.qty) || 0;
+    if (field === 'qty' || field === 'unit') {
+      const u = Number(it.unit);
+      if (it.unit !== '' && q > 0 && Number.isFinite(u)) { it.total = (Math.round(q * u * 100) / 100).toFixed(2); row.querySelector('[data-f=total]').value = it.total; }
+    } else if (field === 'total' && q > 0 && it.total !== '') {
+      it.unit = fmtUnit(Number(it.total) / q); row.querySelector('[data-f=unit]').value = it.unit;
+    }
+  };
   root.addEventListener('input', (e) => {
+    const f = e.target.dataset.f;
+    if (!f) return;
     const row = e.target.closest('.item-row');
-    if (!row || !e.target.dataset.f) return;
-    state.items[Number(row.dataset.i)][e.target.dataset.f] = e.target.value;
+    const crow = e.target.closest('.charge-row');
+    if (row) {
+      const it = state.items[Number(row.dataset.i)];
+      it[f] = e.target.value;
+      recalcRow(row, it, f);
+    } else if (crow) {
+      const c = state.charges[Number(crow.dataset.c)];
+      c[f] = e.target.value;
+      if (f === 'kind') { if (!c.label || Object.values(DEFAULT_LABEL).includes(c.label)) c.label = DEFAULT_LABEL[c.kind]; if (c.kind === 'tip') c.mode = 'equal'; renderItems(); return; }
+    }
     updateItemsSummary();
   });
   root.addEventListener('click', (e) => {
     const row = e.target.closest('.item-row');
     const it = row && state.items[Number(row.dataset.i)];
-    if (e.target.closest('[data-chip]') && it) {
-      const id = e.target.closest('[data-chip]').dataset.chip;
-      it.personIds = it.personIds.includes(id) ? it.personIds.filter((x) => x !== id) : [...it.personIds, id];
+    const crow = e.target.closest('.charge-row');
+    const chip = e.target.closest('[data-chip]');
+    if (chip && it) {
+      const id = chip.dataset.chip;
+      const all = everyone();
+      const allOn = all.every((x) => it.personIds.includes(x)) && it.personIds.length === all.length;
+      // From "everyone", tapping a name means "just this person"; otherwise toggle membership.
+      it.personIds = allOn ? [id] : it.personIds.includes(id) ? it.personIds.filter((x) => x !== id) : [...it.personIds, id];
       renderItems();
-    } else if (e.target.closest('[data-all]') && it) { it.personIds = (state.pool || active()).filter((p) => p.active).map((p) => p.id); renderItems(); }
+    } else if (e.target.closest('[data-all]') && it) { it.personIds = everyone(); renderItems(); }
     else if (e.target.closest('[data-del-item]') && it) { state.items.splice(Number(row.dataset.i), 1); if (!state.items.length) state.items.push(newItem()); renderItems(); }
     else if (e.target.id === 'e-add-item') { state.items.push(newItem()); renderItems(); root.querySelector('.item-row:last-of-type [data-f=name]')?.focus(); }
-    else if (e.target.id === 'e-use-items-total') {
-      const sum = state.items.reduce((a, x) => { try { return a + toCents(x.amount); } catch { return a; } }, 0);
-      $('e-amount').value = (sum / 100).toFixed(2); updateItemsSummary();
-    }
+    else if (e.target.closest('[data-del-charge]') && crow) { state.charges.splice(Number(crow.dataset.c), 1); renderItems(); }
+    else if (e.target.closest('[data-add-charge]')) { state.charges.push(newCharge(e.target.closest('[data-add-charge]').dataset.addCharge)); renderItems(); root.querySelector('.charge-row:last-of-type [data-f=amount]')?.focus(); }
+    else if (e.target.closest('[data-tip-pct]') && crow) {
+      const c = state.charges[Number(crow.dataset.c)];
+      c.amount = ((itemsCents() * Number(e.target.closest('[data-tip-pct]').dataset.tipPct)) / 100 / 100).toFixed(2);
+      renderItems();
+    } else if (e.target.closest('[data-other-to-charge]')) {
+      const other = Math.round((parseFloat($('e-amount').value) || 0) * 100) - itemsCents() - chargesCents();
+      state.charges.push(newCharge(other > 0 ? 'fee' : 'discount', other > 0 ? 'Other charges' : 'Adjustment', Math.abs(other) / 100));
+      renderItems();
+    } else if (e.target.closest('[data-auto-total]')) { state.totalAuto = true; updateItemsSummary(); }
   });
 }
 
@@ -598,10 +695,13 @@ function showDetection(r) {
     box.insertAdjacentHTML('beforeend', `<div class="alts">${r.items.length} line items found <button type="button" class="btn btn-ghost btn-sm" id="e-use-items">Split item by item</button></div>`);
     $('e-use-items').onclick = () => {
       applySuggestion(r);
-      state.items = r.items.map((it) => newItem(it.name, it.amount.toFixed(2)));
+      state.items = r.items.map((it) => newItem(it.name, it.amount, it.quantity || 1));
+      state.charges = (r.charges || []).map((c) => newCharge(c.kind, c.label, c.amount, c.mode));
+      state.totalAuto = !r.total;
       $('e-method').value = 'items';
       renderRows();
-      showApplied('Items loaded. Tap names to assign who shared each one.');
+      const n = state.charges.length;
+      showApplied(`Loaded ${state.items.length} items${n ? ` and ${n} charge${n > 1 ? 's' : ''}` : ''}. Everyone is selected on each item: tap names to change who shared it.`);
     };
   }
 }
@@ -707,7 +807,7 @@ function bind() {
   $('e-method').onchange = renderRows;
   bindItems();
   $('e-multi-payer').onchange = renderRows;
-  $('e-amount').oninput = updateValidation;
+  $('e-amount').oninput = () => { state.totalAuto = false; updateValidation(); };
   $('e-participants').addEventListener('input', updateValidation);
   $('e-participants').addEventListener('change', (e) => { if (e.target.dataset.f === 'included') renderRows(); else updateValidation(); });
 
