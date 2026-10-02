@@ -157,3 +157,26 @@ test('CSV export neutralises formulas and includes rows', async () => {
   assert.match(csv, /'=HYPERLINK/);
   assert.ok(!/,=HYPERLINK/.test(csv));
 });
+
+test('item-by-item expense stores items and computes shares', async () => {
+  const mk = async (name) => (await call('POST', '/api/people', { name })).body.person.id;
+  const [a, b] = [await mk('Gia'), await mk('Hal')];
+  const r = await call('POST', '/api/expenses', {
+    description: 'Dinner', amount: '33.00', date: '2026-09-10', splitMethod: 'items',
+    paidBy: [{ personId: a }],
+    items: [
+      { name: 'Pizza', amount: '20.00', personIds: [a, b] },
+      { name: 'Wine', amount: '10.00', personIds: [b] },
+    ],
+  });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal(r.body.expense.extraCents, 300);
+  const by = Object.fromEntries(r.body.expense.splits.map((s) => [s.personId, s.cents]));
+  assert.equal(by[a] + by[b], 3300);
+  assert.equal(by[a], 1100); // 1000 + 100 share of 300 extra (1000:2000)
+  const bad = await call('POST', '/api/expenses', {
+    description: 'x', amount: '5', date: '2026-09-10', splitMethod: 'items', paidBy: [{ personId: a }],
+    items: [{ name: 'Nobody', amount: '5', personIds: [] }],
+  });
+  assert.equal(bad.status, 400);
+});

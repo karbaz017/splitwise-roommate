@@ -31,17 +31,21 @@ export class ValidationError extends Error {
 
 // Distribute `total` cents proportionally to integer `weights` using the
 // largest-remainder method. The result always sums exactly to `total`.
+// BigInt keeps the maths exact even for very large amounts.
 export function allocate(total, weights) {
   const sum = weights.reduce((a, b) => a + b, 0);
   if (sum <= 0) throw new ValidationError('Split weights must add up to more than zero');
-  const exact = weights.map((w) => (total * w) / sum);
-  const floors = exact.map(Math.floor);
-  let left = total - floors.reduce((a, b) => a + b, 0);
-  const order = exact
-    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
-    .sort((a, b) => b.frac - a.frac || a.i - b.i);
-  for (let k = 0; left > 0 && k < order.length; k++, left--) floors[order[k].i] += 1;
-  return floors;
+  const T = BigInt(total);
+  const S = BigInt(sum);
+  const parts = weights.map((w, i) => {
+    const prod = T * BigInt(w);
+    return { i, base: prod / S, rem: prod % S };
+  });
+  let left = Number(T - parts.reduce((a, p) => a + p.base, 0n));
+  const order = [...parts].sort((a, b) => (a.rem === b.rem ? a.i - b.i : a.rem > b.rem ? -1 : 1));
+  const out = parts.map((p) => Number(p.base));
+  for (let k = 0; left > 0 && k < order.length; k++, left--) out[order[k].i] += 1;
+  return out;
 }
 
 /**
@@ -124,4 +128,34 @@ export function simplifyDebts(net) {
     if (creditors[j].v === 0) j++;
   }
   return transfers;
+}
+
+/**
+ * Item-by-item split (groceries, restaurant bills).
+ * Each item is split equally between the people it is assigned to. Whatever is
+ * left between the item total and the bill total (tax, tip, fees, or a negative
+ * discount) is shared in proportion to what each person's items cost.
+ * @param {number} total bill total in cents (items + extras)
+ * @param {{cents:number, personIds:string[]}[]} items
+ * @returns {{splits:{personId:string,cents:number}[], itemsCents:number, extraCents:number}}
+ */
+export function computeItemSplits(total, items) {
+  if (!Array.isArray(items) || items.length === 0) throw new ValidationError('Add at least one item');
+  const subtotal = new Map();
+  let itemsCents = 0;
+  items.forEach((it, idx) => {
+    const label = `Item ${idx + 1}`;
+    if (!Number.isInteger(it.cents) || it.cents <= 0) throw new ValidationError(`${label} needs a price greater than zero`);
+    const ids = [...new Set(it.personIds || [])];
+    if (ids.length === 0) throw new ValidationError(`${label} ("${it.name || ''}") is not assigned to anyone`);
+    itemsCents += it.cents;
+    allocate(it.cents, ids.map(() => 1)).forEach((c, k) => subtotal.set(ids[k], (subtotal.get(ids[k]) || 0) + c));
+  });
+  const extraCents = total - itemsCents;
+  const people = [...subtotal.keys()];
+  const weights = people.map((id) => subtotal.get(id));
+  const extra = extraCents === 0 ? people.map(() => 0) : allocate(Math.abs(extraCents), weights).map((c) => (extraCents < 0 ? -c : c));
+  const splits = people.map((personId, i) => ({ personId, cents: subtotal.get(personId) + extra[i] }));
+  if (splits.some((s) => s.cents < 0)) throw new ValidationError('The discount is larger than the items it applies to');
+  return { splits, itemsCents, extraCents };
 }

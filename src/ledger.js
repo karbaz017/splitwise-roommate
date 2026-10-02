@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { ValidationError, toCents, computeSplits } from './money.js';
+import { ValidationError, toCents, computeSplits, computeItemSplits } from './money.js';
 
 export const CATEGORIES = [
   'Rent', 'Utilities', 'Internet', 'Groceries', 'Household', 'Dining out',
@@ -79,9 +79,23 @@ export function normalizeExpense(body, people, existing = null) {
   }
 
   const method = body.splitMethod || 'equal';
-  const participants = (body.participants || []).map((p) => ({ ...p, personId: mustKnow(p.personId) }));
   out.splitMethod = method;
-  out.splits = computeSplits(amountCents, method, participants);
+  if (method === 'items') {
+    const raw = Array.isArray(body.items) ? body.items : [];
+    if (raw.length > 200) throw new ValidationError('Too many items (max 200)');
+    const items = raw.map((it, i) => ({
+      name: str(it.name, `Item ${i + 1} name`, { max: 100 }),
+      cents: toCents(it.amount),
+      personIds: (it.personIds || []).map(mustKnow),
+    }));
+    const r = computeItemSplits(amountCents, items);
+    out.splits = r.splits;
+    out.items = items;
+    out.extraCents = r.extraCents;
+  } else {
+    const participants = (body.participants || []).map((p) => ({ ...p, personId: mustKnow(p.personId) }));
+    out.splits = computeSplits(amountCents, method, participants);
+  }
 
   const rawPayers = Array.isArray(body.paidBy) ? body.paidBy : [];
   if (rawPayers.length === 0) throw new ValidationError('Who paid? At least one payer is required');
