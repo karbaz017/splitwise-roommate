@@ -87,12 +87,13 @@ export function totalCandidates(lines, { fallback = true } = {}) {
     if (nums.length === 0 && lines[i + 1]) nums = numbersIn(lines[i + 1]); // "TOTAL" / "$42.10"
     if (nums.length === 0) return;
     const best = nums.filter((n) => n.hasDecimals).pop() || nums[nums.length - 1];
-    cands.push({ v: best.v, score: (strong ? 3 : 1) + (i / lines.length) + (best.hasDecimals ? 0.5 : 0) });
+    if (!best.hasDecimals && best.v > 99999) return; // OCR junk, not a plausible bill
+    cands.push({ v: best.v, score: (strong ? 3 : 1) + (i / lines.length) + (best.hasDecimals ? 0.5 : -1.5) });
   });
   if (!cands.length && fallback) {
     const rest = lines.flatMap((l) => (/\b(tax|vat|gst|change|cash|tip|phone|tel|invoice\s*no|card|visa|auth|ref)\b/i.test(l) ? [] : numbersIn(l))).filter((n) => n.hasDecimals);
     const max = rest.length ? Math.max(...rest.map((n) => n.v)) : null;
-    if (max) cands.push({ v: max, score: 0.2 });
+    if (max) cands.push({ v: max, score: 0.2, fallback: true });
   }
   return cands;
 }
@@ -267,7 +268,7 @@ export function parseReceiptText(text, opts = {}) {
   const merchant = findMerchant(clean);
   const category = guessCategory(clean, opts.categories);
   const currency = findCurrency(clean);
-  const confidence = Math.min(top?.computed ? 0.5 : 1, (total ? 0.4 : 0) + (reconciled ? 0.25 : 0) + (date ? 0.15 : 0) + (merchant ? 0.1 : 0) + (items.length ? 0.1 : 0));
+  const confidence = Math.min(top?.fallback ? 0.35 : top?.computed ? 0.5 : 1, (total ? 0.4 : 0) + (reconciled ? 0.25 : 0) + (date ? 0.15 : 0) + (merchant ? 0.1 : 0) + (items.length ? 0.1 : 0));
   return {
     total, subtotal, tax, tip, discount: discount || null, date, merchant, category, currency, items,
     totalCandidates: uniq.slice(0, 4).map((c) => c.v), reconciled, confidence,

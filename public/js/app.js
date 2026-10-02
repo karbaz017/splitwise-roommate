@@ -1,6 +1,6 @@
 import { API } from './api.js';
 import { ReceiptPicker } from './receipts.js';
-import { analyzeReceipt } from './ocr.js';
+import { analyzeReceipt, mergeResults } from './ocr.js';
 import { computeItemSplits, toCents } from '/shared/money.js';
 import { esc, money, setCurrency, todayISO, formatDate, icons, toast, debounce } from './util.js';
 
@@ -485,26 +485,64 @@ function applySuggestion(r) {
 async function detectFromReceipt(files) {
   const box = $('e-detect');
   const run = ++detectRun;
-  const file = files[0];
   box.classList.remove('hidden');
-  box.innerHTML = `<span class="spin"></span> Reading <strong>${esc(file.name)}</strong>…`;
+  const status = (html) => { if (run === detectRun) box.innerHTML = html; };
+  status('<span class="spin"></span> Reading receipt…');
   try {
-    const r = await analyzeReceipt(file, { categories: state.settings.categories, onProgress: (p) => { if (run === detectRun) box.querySelector('.pct')?.replaceWith(Object.assign(document.createElement('span'), { className: 'pct', textContent: ` ${Math.round(p * 100)}%` })); } });
-    if (run !== detectRun) return;
-    if (!r) { box.textContent = 'This file type can’t be read in the browser (e.g. HEIC). It will still be saved — enter the details manually.'; return; }
-    if (!r.total && !r.date && !r.merchant) { box.textContent = 'Couldn’t find readable details on this receipt. It will still be saved — enter the details manually.'; return; }
-    const parts = [r.merchant, r.total && money(Math.round(r.total * 100)), r.date && formatDate(r.date)].filter(Boolean).map(esc).join(' · ');
-    if (untouched()) {
-      applySuggestion(r);
-      box.innerHTML = `✔ Filled from receipt: ${parts}. Please double-check.`;
-    } else {
-      box.innerHTML = `Detected: ${parts} <button type="button" class="btn btn-outline btn-sm" id="e-apply">Use these</button>`;
-      $('e-apply').onclick = () => { applySuggestion(r); box.innerHTML = '✔ Applied. Please double-check.'; };
+    const results = [];
+    let unreadable = 0;
+    for (const [i, file] of files.entries()) {
+      const label = files.length > 1 ? ` ${i + 1}/${files.length}` : '';
+      const r = await analyzeReceipt(file, {
+        categories: state.settings.categories,
+        onStage: (stage) => status(`<span class="spin"></span> ${esc(stage)}${label}… <small>${esc(file.name)}</small>`),
+      });
+      if (run !== detectRun) return;
+      if (r) results.push(r); else unreadable++;
     }
+    const r = mergeResults(results);
+    if (!r) { status('This file type can’t be read in the browser. It will still be saved. Enter the details manually.'); return; }
+    if (!r.total && !r.date && !r.merchant && !(r.items || []).length) { status(`Couldn’t find readable details${unreadable ? '' : ' (try a flatter, brighter photo)'}. It will still be saved. Enter the details manually.`); return; }
+    showDetection(r);
   } catch (err) {
     if (run === detectRun) box.textContent = err.message;
   }
 }
+
+function showDetection(r) {
+  const box = $('e-detect');
+  const confident = r.confidence >= 0.6 && r.total;
+  const parts = [r.merchant, r.total && money(Math.round(r.total * 100)), r.date && formatDate(r.date)].filter(Boolean).map(esc).join(' · ');
+  const hasItems = (r.items || []).length >= 2;
+  const mismatch = r.currency && r.currency !== state.settings.currency
+    ? `<div class="warn">This receipt looks like <strong>${esc(r.currency)}</strong> but your ledger uses <strong>${esc(state.settings.currency)}</strong>. Convert the amount before saving.</div>` : '';
+  const alt = (r.totalCandidates || []).filter((v) => v !== r.total);
+
+  if (confident && untouched()) {
+    applySuggestion(r);
+    box.innerHTML = `✔ Filled from receipt: ${parts}. Please double-check.${r.reconciled ? ' <small>(total matches subtotal + tax)</small>' : ''}`;
+  } else {
+    box.innerHTML = `${confident ? 'Detected' : 'Low confidence, please check'}: ${parts || 'partial details'} <button type="button" class="btn btn-outline btn-sm" id="e-apply">Use these</button>`;
+    $('e-apply').onclick = () => { applySuggestion(r); showApplied(); };
+  }
+  box.insertAdjacentHTML('beforeend', mismatch);
+  if (alt.length) {
+    box.insertAdjacentHTML('beforeend', `<div class="alts">Other amounts found: ${alt.map((v) => `<button type="button" class="chip" data-alt="${v}">${esc(money(Math.round(v * 100)))}</button>`).join('')}</div>`);
+    box.querySelectorAll('[data-alt]').forEach((b) => { b.onclick = () => { $('e-amount').value = Number(b.dataset.alt).toFixed(2); updateValidation(); }; });
+  }
+  if (hasItems) {
+    box.insertAdjacentHTML('beforeend', `<div class="alts">${r.items.length} line items found <button type="button" class="btn btn-outline btn-sm" id="e-use-items">Split item by item</button></div>`);
+    $('e-use-items').onclick = () => {
+      applySuggestion(r);
+      state.items = r.items.map((it) => newItem(it.name, it.amount.toFixed(2)));
+      $('e-method').value = 'items';
+      renderRows();
+      showApplied('Items loaded. Tap names to assign who shared each one.');
+    };
+  }
+}
+
+function showApplied(msg = '✔ Applied. Please double-check.') { $('e-detect').innerHTML = msg; }
 
 // ---------------------------------------------------------------- settle modal
 let settlePicker;

@@ -105,3 +105,7 @@ body.modal-open { overflow: hidden; }
 .sum-line.err { color: var(--rose); }
 .items-detail { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); }
 @media (max-width: 860px) { .items-head { display: none; } .item-row { grid-template-columns: 1fr 90px 28px; } .item-row .chips { grid-column: 1 / -1; order: 5; } }
+.detect { flex-direction: column; align-items: flex-start; }
+.detect .alts { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: .85rem; color: var(--text-secondary); }
+.detect .warn { color: var(--warning); font-size: .85rem; }
+.detect small { color: var(--text-muted); }
