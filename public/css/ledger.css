@@ -84,3 +84,7 @@ body.modal-open { overflow: hidden; }
   .expense-card { flex-wrap: wrap; gap: 10px; padding: 14px; }
   .bar-row { grid-template-columns: 80px 1fr auto; }
 }
+
+.detect { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--primary-light); font-size: .88rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.spin { width: 14px; height: 14px; border: 2px solid var(--primary); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
+@keyframes spin { to { transform: rotate(360deg); } }

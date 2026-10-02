@@ -16,6 +16,7 @@ export class ReceiptPicker {
     this.existing = [];
     this.expenseId = null;
     this.onRemoveExisting = null;
+    this.onAdded = null; // (File[]) => void, called with newly accepted files
     this.render();
   }
 
@@ -30,6 +31,7 @@ export class ReceiptPicker {
   get files() { return this.pending.map((p) => p.file); }
 
   add(fileList) {
+    const accepted = [];
     for (const file of fileList) {
       const type = file.type || '';
       const looksOk = ACCEPT.includes(type) || /\.(heic|heif|pdf|jpe?g|png|gif|webp)$/i.test(file.name);
@@ -40,9 +42,11 @@ export class ReceiptPicker {
       const named = file.name === 'image.png' || !file.name
         ? new File([file], `pasted-${Date.now()}.${(type.split('/')[1] || 'png')}`, { type })
         : file;
+      accepted.push(named);
       this.pending.push({ file: named, url: named.type.startsWith('image/') && !/heic|heif/.test(named.type) ? URL.createObjectURL(named) : null });
     }
     this.render();
+    if (accepted.length) this.onAdded?.(accepted);
   }
 
   // Wire paste for the lifetime of a modal; returns a disposer.

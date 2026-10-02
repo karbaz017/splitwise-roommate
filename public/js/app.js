@@ -1,5 +1,6 @@
 import { API } from './api.js';
 import { ReceiptPicker } from './receipts.js';
+import { analyzeReceipt } from './ocr.js';
 import { esc, money, setCurrency, todayISO, formatDate, icons, toast, debounce } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -247,6 +248,9 @@ function openExpense(expense = null) {
   });
   renderRows();
   expensePicker.reset(expense?.receipts || [], expense?.id || null);
+  detectRun++;
+  $('e-detect').classList.add('hidden');
+  $('e-detect').textContent = '';
   expensePicker.onRemoveExisting = () => { renderTab(); };
   disposePaste = expensePicker.listenForPaste($('expense-modal'));
   openModal('expense-modal');
@@ -362,6 +366,42 @@ async function submitExpense(e) {
   }
 }
 
+// ---------------------------------------------------------------- receipt detection
+let detectRun = 0;
+const untouched = () => !$('e-amount').value && !$('e-desc').value.trim();
+
+function applySuggestion(r) {
+  if (r.total) $('e-amount').value = r.total.toFixed(2);
+  if (r.date) $('e-date').value = r.date;
+  if (r.merchant) $('e-desc').value = r.merchant;
+  if (r.category) $('e-category').value = r.category;
+  updateValidation();
+}
+
+async function detectFromReceipt(files) {
+  const box = $('e-detect');
+  const run = ++detectRun;
+  const file = files[0];
+  box.classList.remove('hidden');
+  box.innerHTML = `<span class="spin"></span> Reading <strong>${esc(file.name)}</strong>…`;
+  try {
+    const r = await analyzeReceipt(file, { categories: state.settings.categories, onProgress: (p) => { if (run === detectRun) box.querySelector('.pct')?.replaceWith(Object.assign(document.createElement('span'), { className: 'pct', textContent: ` ${Math.round(p * 100)}%` })); } });
+    if (run !== detectRun) return;
+    if (!r) { box.textContent = 'This file type can’t be read in the browser (e.g. HEIC). It will still be saved — enter the details manually.'; return; }
+    if (!r.total && !r.date && !r.merchant) { box.textContent = 'Couldn’t find readable details on this receipt. It will still be saved — enter the details manually.'; return; }
+    const parts = [r.merchant, r.total && money(Math.round(r.total * 100)), r.date && formatDate(r.date)].filter(Boolean).map(esc).join(' · ');
+    if (untouched()) {
+      applySuggestion(r);
+      box.innerHTML = `✔ Filled from receipt: ${parts}. Please double-check.`;
+    } else {
+      box.innerHTML = `Detected: ${parts} <button type="button" class="btn btn-outline btn-sm" id="e-apply">Use these</button>`;
+      $('e-apply').onclick = () => { applySuggestion(r); box.innerHTML = '✔ Applied. Please double-check.'; };
+    }
+  } catch (err) {
+    if (run === detectRun) box.textContent = err.message;
+  }
+}
+
 // ---------------------------------------------------------------- settle modal
 let settlePicker;
 
@@ -412,6 +452,7 @@ async function submitSettle(e) {
 // ---------------------------------------------------------------- events
 function bind() {
   expensePicker = new ReceiptPicker($('e-receipts'));
+  expensePicker.onAdded = detectFromReceipt;
   settlePicker = new ReceiptPicker($('s-receipts'));
 
   document.addEventListener('click', async (e) => {
