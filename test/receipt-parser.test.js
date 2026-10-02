@@ -62,3 +62,101 @@ test('date formats and sanity', () => {
 test('garbage text yields no suggestion', () => {
   assert.equal(parseReceiptText('   ').confidence, 0);
 });
+
+import { normalizeOcrText, findItems, findCurrency } from '../public/js/receipt-parser.js';
+
+test('normalizeOcrText repairs prices but not words', () => {
+  const t = normalizeOcrText('TOTAL $9.O4\nB0LOGNA 3.9S\nSOLD 12 . 50\nHello World 2 pcs');
+  assert.match(t, /TOTAL \$9\.04/);
+  assert.match(t, /3\.95/);
+  assert.match(t, /12\.50/);
+  assert.match(t, /Hello World 2 pcs/);
+});
+
+const WALMART = `WALMART SUPERCENTER
+Store #1234  Tel 555-010-9999
+09/14/26 14:22
+004011 BANANAS     F      1.49
+068113 ORG MILK 2 @ 3.50   7.00 T
+COUPON SAVINGS         1.00-
+BREAD WHL WHEAT        2.99
+SUBTOTAL              10.48
+TAX 6.5%               0.53
+TOTAL                 11.01
+VISA TEND             11.01
+CHANGE DUE             0.00`;
+
+test('grocery receipt: items, discount, tax reconcile to total', () => {
+  const r = parseReceiptText(WALMART, { categories: ['Groceries', 'Other'] });
+  assert.equal(r.total, 11.01);
+  assert.equal(r.subtotal, 10.48);
+  assert.equal(r.tax, 0.53);
+  assert.equal(r.discount, 1);
+  assert.equal(r.date, '2026-09-14');
+  assert.equal(r.reconciled, true);
+  assert.deepEqual(r.items.map((i) => i.amount), [1.49, 7, 2.99]);
+  assert.equal(r.items[0].name, 'Bananas');
+  assert.equal(r.items[1].name, 'Org Milk');
+  assert.equal(r.category, 'Groceries');
+  assert.ok(r.confidence >= 0.8);
+});
+
+const RESTAURANT = `The Olive Garden
+Table 12  Server: Sam
+2 x Margherita Pizza    26.00
+Caesar Salad            9.50
+Sparkling Water         4.00
+Subtotal               39.50
+Sales Tax               3.16
+Tip 18%                 7.11
+Total                  49.77`;
+
+test('restaurant: tip + tax reconcile, items listed', () => {
+  const r = parseReceiptText(RESTAURANT);
+  assert.equal(r.total, 49.77);
+  assert.equal(r.tip, 7.11);
+  assert.equal(r.items.length, 3);
+  assert.equal(r.items[0].name, 'Margherita Pizza');
+  assert.equal(r.items[0].amount, 26);
+  assert.equal(r.reconciled, true);
+  assert.equal(r.category, 'Dining out');
+});
+
+test('OCR-damaged total is repaired and chosen over subtotal', () => {
+  const r = parseReceiptText(`CORNER CAFE\nLatte  4.5O\nMuffin  3.2S\nSUBT0TAL  7.75\nTAX  0.62\nT0TAL  8.37`);
+  assert.equal(r.total, 8.37);
+});
+
+test('Indian GST bill with CGST/SGST and rupee symbol', () => {
+  const t = `Sharma Kirana Store\nGSTIN 27ABCDE1234F1Z5\nBill Date: 14-09-2026\nRice 5kg   ₹ 320.00\nDal 1kg    ₹ 150.00\nSub Total  470.00\nCGST 2.5%  11.75\nSGST 2.5%  11.75\nGrand Total ₹493.50`;
+  const r = parseReceiptText(t);
+  assert.equal(r.total, 493.5);
+  assert.equal(r.tax, 23.5);
+  assert.equal(r.date, '2026-09-14');
+  assert.equal(r.currency, 'INR');
+  assert.equal(r.reconciled, true);
+});
+
+test('total keyword missing: computed from subtotal + tax, flagged low confidence', () => {
+  const r = parseReceiptText('Corner Shop\nApples 3.00\nPears 2.00\nSubtotal 5.00\nTax 0.40\nThank you');
+  assert.equal(r.total, 5.4);
+  assert.ok(r.confidence < 0.6);
+});
+
+test('multiple total candidates are offered', () => {
+  const r = parseReceiptText('Shop X\nTotal 20.00\nAmount Paid 25.00\nChange 5.00');
+  assert.ok(r.totalCandidates.includes(20) && r.totalCandidates.includes(25));
+});
+
+test('findItems ignores payment, phone and tax lines', () => {
+  const { items } = findItems(['Milk 2.00', 'VISA ****1234  5.00', 'Tel 555-1234', 'Tax 0.20', 'Total 2.20']);
+  assert.deepEqual(items.map((i) => i.name), ['Milk']);
+});
+
+test('dates tolerate OCR spacing and currency detection is explicit only', () => {
+  assert.equal(findDate('Date 14 / 09 / 2026'), '2026-09-14');
+  assert.equal(findDate('14-Sep-26'), '2026-09-14');
+  assert.equal(findCurrency('Total $5.00'), null);
+  assert.equal(findCurrency('Total 5.00 EUR'), 'EUR');
+  assert.equal(findCurrency('Total €5.00'), 'EUR');
+});

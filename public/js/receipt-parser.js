@@ -27,7 +27,37 @@ export function parseAmount(token) {
   return Number.isFinite(n) ? Math.round(n * 100) / 100 : null;
 }
 
+const CUR = '[$€£₹¥]';
 const NUM = /(?<![\d.,])\d{1,3}(?:[.,\s]?\d{2,3})*(?:[.,]\d{1,2})?(?![\d])|(?<![\d.,])\d+(?:[.,]\d{1,2})?(?![\d])/g;
+
+// ---------------------------------------------------------------- OCR clean-up
+// Fix the character confusions OCR makes inside numbers (O/0, l/1, S/5, B/8) and
+// stray spaces around decimal separators, without touching ordinary words.
+export function normalizeOcrText(text) {
+  const MAP = { O: '0', o: '0', D: '0', Q: '0', I: '1', l: '1', '|': '1', i: '1', S: '5', s: '5', B: '8', Z: '2', z: '2' };
+  return String(text || '')
+    .replace(/\r/g, '')
+    .replace(/[‘’´`]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—−]/g, '-')
+    .split('\n')
+    .map((line) => line
+      .replace(/\t+/g, '  ')
+      // "12 . 50" / "12 ,50" -> "12.50"
+      .replace(/(\d)\s+([.,])\s*(\d{2})(?!\d)/g, '$1$2$3')
+      .replace(/(\d)([.,])\s+(\d{2})(?!\d)/g, '$1$2$3')
+      .split(/(\s+)/)
+      .map((tok) => {
+        // Only repair tokens that are clearly prices: digits plus confusable letters and a decimal part.
+        if (!/\d/.test(tok) || !/[.,][\dOoDQIl|iSsBZz]{2}$/.test(tok)) return tok;
+        if (!/^[-($€£₹¥]*[\dOoDQIl|iSsBZz.,]+\)?$/.test(tok)) return tok;
+        const digits = (tok.match(/\d/g) || []).length;
+        if (digits < 2) return tok;
+        return tok.replace(/[OoDQIl|iSsBZz]/g, (c) => MAP[c]);
+      })
+      .join(''))
+    .join('\n');
+}
 
 function numbersIn(line) {
   const out = [];
@@ -39,12 +69,14 @@ function numbersIn(line) {
   return out;
 }
 
-const TOTAL_STRONG = /\b(grand\s*total|total\s*(amount\s*)?(due|payable)|amount\s*(due|payable)|balance\s*due|net\s*(payable|amount|total)|total\s*due|to\s*pay|you\s*pay|invoice\s*total|bill\s*total|total\s*amount|amount\s*paid|total\s*paid)\b/i;
-const TOTAL_WEAK = /\btotal\b/i;
-const TOTAL_NEG = /\b(sub\s*-?\s*total|total\s*(savings|discount|tax|vat|gst|items?|qty|quantity|points)|tax\s*total|you\s*saved|change|tendered|cash|round(ing)?\s*off)\b/i;
+const splitLines = (text) => text.split('\n').map((l) => l.trim()).filter(Boolean);
 
-export function findTotal(text) {
-  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+// ---------------------------------------------------------------- totals
+const TOTAL_STRONG = /\b(grand\s*total|total\s*(amount\s*)?(due|payable)|amount\s*(due|payable)|balance\s*due|net\s*(payable|amount|total)|total\s*due|to\s*pay|you\s*pay|invoice\s*total|bill\s*total|total\s*amount|amount\s*paid|total\s*paid|total\s*charge|order\s*total|total\s*sale|total\s*bill)\b/i;
+const TOTAL_WEAK = /\btotal\b/i;
+const TOTAL_NEG = /\b(sub\s*-?\s*total|total\s*(savings|discount|tax|vat|gst|items?|qty|quantity|points|tips?)|tax\s*total|you\s*saved|change|tendered|round(ing)?\s*off|items?\s*sold|number\s*of)\b/i;
+
+export function totalCandidates(lines, { fallback = true } = {}) {
   const cands = [];
   lines.forEach((line, i) => {
     const strong = TOTAL_STRONG.test(line);
@@ -52,19 +84,76 @@ export function findTotal(text) {
     if (!strong && !weak) return;
     if (TOTAL_NEG.test(line) && !strong) return;
     let nums = numbersIn(line);
-    // Amount may sit on the next line ("TOTAL" / "$42.10").
-    if (nums.length === 0 && lines[i + 1]) nums = numbersIn(lines[i + 1]);
+    if (nums.length === 0 && lines[i + 1]) nums = numbersIn(lines[i + 1]); // "TOTAL" / "$42.10"
     if (nums.length === 0) return;
     const best = nums.filter((n) => n.hasDecimals).pop() || nums[nums.length - 1];
     cands.push({ v: best.v, score: (strong ? 3 : 1) + (i / lines.length) + (best.hasDecimals ? 0.5 : 0) });
   });
-  if (cands.length) return cands.sort((a, b) => b.score - a.score || b.v - a.v)[0].v;
-
-  // Fallback: the largest amount with decimals anywhere on the receipt.
-  const all = lines.flatMap((l) => (/\b(tax|vat|gst|change|cash|tip|phone|tel|invoice\s*no)\b/i.test(l) ? [] : numbersIn(l))).filter((n) => n.hasDecimals);
-  return all.length ? Math.max(...all.map((n) => n.v)) : null;
+  if (!cands.length && fallback) {
+    const rest = lines.flatMap((l) => (/\b(tax|vat|gst|change|cash|tip|phone|tel|invoice\s*no|card|visa|auth|ref)\b/i.test(l) ? [] : numbersIn(l))).filter((n) => n.hasDecimals);
+    const max = rest.length ? Math.max(...rest.map((n) => n.v)) : null;
+    if (max) cands.push({ v: max, score: 0.2 });
+  }
+  return cands;
 }
 
+export function findTotal(text) {
+  const c = totalCandidates(splitLines(normalizeOcrText(text))).sort((a, b) => b.score - a.score || b.v - a.v);
+  return c.length ? c[0].v : null;
+}
+
+// ---------------------------------------------------------------- labelled amounts + line items
+function labelled(lines, re, { excludeRe, sum = false } = {}) {
+  const vals = [];
+  lines.forEach((line, i) => {
+    if (!re.test(line) || (excludeRe && excludeRe.test(line))) return;
+    let nums = numbersIn(line).filter((n) => n.hasDecimals);
+    if (!nums.length && lines[i + 1] && !/[A-Za-z]{3,}/.test(lines[i + 1])) nums = numbersIn(lines[i + 1]).filter((n) => n.hasDecimals);
+    if (nums.length) vals.push(nums[nums.length - 1].v);
+  });
+  if (!vals.length) return null;
+  return sum ? Math.round(vals.reduce((a, b) => a + b, 0) * 100) / 100 : vals[vals.length - 1];
+}
+
+const NON_ITEM = /\b(sub\s*-?\s*total|total|tax|vat|gst|hst|pst|cgst|sgst|igst|tips?|gratuity|service\s*(charge|fee)|surcharge|delivery|change|cash|card|visa|master\s*card|mastercard|amex|debit|credit|tender(ed)?|balance|amount|due|paid|payment|you\s*saved|savings?|round(ing)?|points|rewards?|auth|approval|ref|invoice|order|table|guest|server|cashier|phone|tel|fax|item\s*count|items?\s*sold|thank|welcome)\b/i;
+const DISCOUNT = /\b(coupon|discount|promo(tion)?|offer|markdown|member\s*savings|deal)\b/i;
+const ITEM_RE = /^(.*?[A-Za-z].*?)[\s.:_-]*(-?\s*[$€£₹¥]?\s?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*(-|[A-Za-z]{1,2})?$/;
+
+function cleanItemName(raw) {
+  let n = raw
+    .replace(new RegExp(`\\b\\d+\\s*[@xX]\\s*${CUR}?\\s?\\d+[.,]\\d{2}\\b`, 'g'), ' ') // "2 @ 1.99"
+    .replace(/^\s*\d+\s*[xX]\s+/, '') // "2 x Milk"
+    .replace(/^\s*\d{4,}\s+/, '') // SKU / PLU
+    .replace(/\s+\d{4,}\s*$/, '')
+    .replace(/\s+[A-Z]$/, '') // tax-code flag column (F, T, A)
+    .replace(/[^\w &'.,%/+()-]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (n.length > 3 && n === n.toUpperCase()) n = n.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  return n.slice(0, 100);
+}
+
+export function findItems(lines) {
+  const items = [];
+  let discount = 0;
+  for (const line of lines) {
+    const m = line.match(ITEM_RE);
+    if (!m) continue;
+    const letters = (m[1].match(/[A-Za-z]/g) || []).length;
+    if (letters < 2) continue;
+    const price = parseAmount(m[2].replace(/-/g, ''));
+    if (!price || price <= 0) continue;
+    const negative = /-\s*[$€£₹¥]?\s?\d/.test(m[2]) || m[3] === '-';
+    if (DISCOUNT.test(m[1]) || negative) { if (!/\b(total|you\s*saved|tax|tender|change)\b/i.test(m[1])) discount += price; continue; }
+    if (NON_ITEM.test(m[1])) continue;
+    const name = cleanItemName(m[1]);
+    if (name.replace(/[^A-Za-z]/g, '').length < 2) continue;
+    items.push({ name, amount: price });
+  }
+  return { items, discount: Math.round(discount * 100) / 100 };
+}
+
+// ---------------------------------------------------------------- dates
 const MONTHS = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12 };
 
 const iso = (y, m, d) => {
@@ -77,15 +166,16 @@ const iso = (y, m, d) => {
 
 export function findDate(text, { today = new Date() } = {}) {
   const found = [];
+  const t = text.replace(/\s*([/.-])\s*/g, (m, sep, off, str) => (/\d/.test(str[off - 1] || '') && /\d/.test(str[off + m.length] || '') ? sep : m));
   let m;
   const ymd = /\b(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})\b/g;
-  while ((m = ymd.exec(text))) found.push(iso(+m[1], +m[2], +m[3]));
+  while ((m = ymd.exec(t))) found.push(iso(+m[1], +m[2], +m[3]));
   const named1 = /\b(\d{1,2})(?:st|nd|rd|th)?[\s\-/.,]*(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?[\s\-/.,]*(\d{2,4})\b/gi;
-  while ((m = named1.exec(text))) found.push(iso(+m[3], MONTHS[m[2].toLowerCase()], +m[1]));
+  while ((m = named1.exec(t))) found.push(iso(+m[3], MONTHS[m[2].toLowerCase()], +m[1]));
   const named2 = /\b(jan|feb|mar|apr|may|jun|jul|aug|sept?|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{2,4})\b/gi;
-  while ((m = named2.exec(text))) found.push(iso(+m[3], MONTHS[m[1].toLowerCase()], +m[2]));
+  while ((m = named2.exec(t))) found.push(iso(+m[3], MONTHS[m[1].toLowerCase()], +m[2]));
   const num = /\b(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})\b/g;
-  while ((m = num.exec(text))) {
+  while ((m = num.exec(t))) {
     const a = +m[1]; const b = +m[2]; const y = +m[3];
     // Day-first unless it can only be month-first (e.g. 12/31/2025).
     if (a > 12) found.push(iso(y, b, a));
@@ -97,7 +187,8 @@ export function findDate(text, { today = new Date() } = {}) {
   return valid[0] || null;
 }
 
-const SKIP_LINE = /(receipt|invoice|tax|gst|vat|tel|phone|www\.|http|@|date|time|order|cashier|table|bill\s*no|\d{5,})/i;
+// ---------------------------------------------------------------- merchant, category, currency
+const SKIP_LINE = /(receipt|invoice|tax|gst|vat|tel|phone|www\.|http|@|date|time|order|cashier|table|bill\s*no|welcome|thank|\d{5,})/i;
 
 export function findMerchant(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8);
@@ -111,9 +202,9 @@ export function findMerchant(text) {
 }
 
 const CATEGORY_HINTS = [
-  ['Groceries', /(grocer|supermarket|mart\b|market|fresh|walmart|costco|aldi|lidl|tesco|kroger|safeway|trader joe|whole foods|bigbasket|dmart|instamart|blinkit|zepto)/i],
-  ['Dining out', /(restaurant|cafe|coffee|pizza|burger|grill|kitchen|bistro|diner|bar\b|starbucks|mcdonald|kfc|subway|swiggy|zomato|doordash|ubereats)/i],
-  ['Utilities', /(electric|energy|power|water|gas\b|utility|utilities)/i],
+  ['Groceries', /(grocer|supermarket|mart\b|market|fresh|walmart|costco|aldi|lidl|tesco|kroger|safeway|trader joe|whole foods|bigbasket|dmart|instamart|blinkit|zepto|produce|dairy|bakery|spar\b|carrefour|woolworths|coles)/i],
+  ['Dining out', /(restaurant|cafe|coffee|pizza|burger|grill|kitchen|bistro|diner|bar\b|pub\b|starbucks|mcdonald|kfc|subway|swiggy|zomato|doordash|ubereats|server|table|gratuity|tip\b)/i],
+  ['Utilities', /(electric|energy|power|water|gas\b|utility|utilities|kwh)/i],
   ['Internet', /(internet|broadband|wifi|fiber|telecom|mobile|airtel|jio|comcast|verizon|at&t)/i],
   ['Household', /(ikea|home depot|lowe|bed bath|hardware|cleaning|detergent|pharmacy|chemist|target)/i],
   ['Transport', /(uber|lyft|ola\b|taxi|metro|fuel|petrol|gasoline|parking)/i],
@@ -125,13 +216,60 @@ export function guessCategory(text, categories = []) {
   return null;
 }
 
+// Only report a currency when the receipt is explicit; a bare "$" is ambiguous.
+export function findCurrency(text) {
+  const code = text.match(/\b(USD|EUR|GBP|INR|CAD|AUD|JPY|CHF|SGD|AED|MXN|NZD|SEK|NOK|DKK|ZAR|CNY)\b/);
+  if (code) return code[1];
+  if (/₹|\bRs\.?\s?\d|\bINR\b/i.test(text)) return 'INR';
+  if (/€/.test(text)) return 'EUR';
+  if (/£/.test(text)) return 'GBP';
+  return null;
+}
+
+// ---------------------------------------------------------------- main entry
+const near = (a, b) => a != null && b != null && Math.abs(a - b) <= 0.011;
+const round2 = (n) => Math.round(n * 100) / 100;
+
 export function parseReceiptText(text, opts = {}) {
-  const clean = String(text || '');
-  if (clean.replace(/\s/g, '').length < 8) return { total: null, date: null, merchant: null, category: null, confidence: 0 };
-  const total = findTotal(clean);
+  const clean = normalizeOcrText(text);
+  const empty = { total: null, subtotal: null, tax: null, tip: null, discount: null, date: null, merchant: null, category: null, currency: null, items: [], totalCandidates: [], reconciled: false, confidence: 0 };
+  if (clean.replace(/\s/g, '').length < 8) return empty;
+  const lines = splitLines(clean);
+
+  const subtotal = labelled(lines, /\bsub\s*-?\s*total\b|\bmerchandise\b|\bitems?\s*total\b/i);
+  const tax = labelled(lines, /\b(tax|vat|gst|hst|pst|cgst|sgst|igst)\b/i, { excludeRe: /(subtotal|total\s*(amount|due|payable|bill))\b|before\s*tax|tax\s*(id|no|number|invoice)|inclusive|incl\b/i, sum: true });
+  const tip = labelled(lines, /\b(tip|gratuity|service\s*(charge|fee))\b/i);
+  const { items, discount } = findItems(lines);
+  const itemsSum = round2(items.reduce((a, i) => a + i.amount, 0));
+
+  // Candidate totals, boosted when they reconcile with subtotal/tax/tip or the item list.
+  const cands = totalCandidates(lines, { fallback: false });
+  const base = [subtotal, items.length ? itemsSum : null].filter((x) => x != null);
+  const expected = [];
+  base.forEach((b) => {
+    [0, 1].forEach((useTax) => [0, 1].forEach((useTip) => {
+      expected.push(round2(b + (useTax ? tax || 0 : 0) + (useTip ? tip || 0 : 0) - (discount || 0)));
+      expected.push(round2(b + (useTax ? tax || 0 : 0) + (useTip ? tip || 0 : 0)));
+    }));
+  });
+  cands.forEach((c) => { if (expected.some((e) => near(e, c.v))) { c.score += 3; c.reconciled = true; } });
+  // Nothing labelled as total but subtotal + tax is known: compute it (low confidence).
+  if (!cands.length && subtotal != null && tax != null) cands.push({ v: round2(subtotal + tax + (tip || 0)), score: 0.1, computed: true });
+  if (!cands.length) cands.push(...totalCandidates(lines));
+  cands.sort((a, b) => b.score - a.score || b.v - a.v);
+  const uniq = [];
+  cands.forEach((c) => { if (!uniq.some((u) => near(u.v, c.v))) uniq.push(c); });
+  const top = uniq[0];
+  const total = top ? top.v : null;
+  const reconciled = !!top?.reconciled;
+
   const date = findDate(clean, opts);
   const merchant = findMerchant(clean);
   const category = guessCategory(clean, opts.categories);
-  const confidence = (total ? 0.5 : 0) + (date ? 0.25 : 0) + (merchant ? 0.25 : 0);
-  return { total, date, merchant, category, confidence };
+  const currency = findCurrency(clean);
+  const confidence = Math.min(top?.computed ? 0.5 : 1, (total ? 0.4 : 0) + (reconciled ? 0.25 : 0) + (date ? 0.15 : 0) + (merchant ? 0.1 : 0) + (items.length ? 0.1 : 0));
+  return {
+    total, subtotal, tax, tip, discount: discount || null, date, merchant, category, currency, items,
+    totalCandidates: uniq.slice(0, 4).map((c) => c.v), reconciled, confidence,
+  };
 }
