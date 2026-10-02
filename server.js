@@ -1,12 +1,12 @@
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { createApp } from './src/app.js';
-import { remoteFromEnv } from './src/remote.js';
+import { expandPath, remoteFromEnv } from './src/remote.js';
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
-const dataDir = path.resolve(process.env.DATA_DIR || './data');
+const dataDir = expandPath(process.env.DATA_DIR || './data');
 
 const remote = remoteFromEnv();
 const app = await createApp({ dataDir, remote, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '',

@@ -14,6 +14,25 @@ SYNC_DIR=~/Dropbox/RoommateLedger
 
 Install the same drive client on your other machine, set the same variable, start the app. Done.
 
+### Dropbox step by step
+
+1. Install the Dropbox desktop app on **every computer that will run the ledger** and sign in to the same account. Wait until it shows "Up to date".
+2. Create a folder for it inside Dropbox, e.g. `RoommateLedger`. Find its real path:
+   - macOS: `~/Dropbox/RoommateLedger`, or on newer Macs `~/Library/CloudStorage/Dropbox/RoommateLedger` (right-click the folder in Finder, hold ⌥ Option, "Copy … as Pathname")
+   - Windows: `C:\Users\<you>\Dropbox\RoommateLedger`
+   - Linux: `~/Dropbox/RoommateLedger`
+3. In Dropbox, right-click the folder → **Make available offline** (or "Local" in Smart Sync), so files are always on disk.
+4. In the project's `.env` (same on every computer, adjust the path per computer):
+   ```env
+   SYNC_DIR=~/Dropbox/RoommateLedger
+   SYNC_PASSPHRASE=your long secret phrase
+   ```
+   `~` is expanded for you.
+5. Start the app (`npm start`). The log should say `Cloud sync: /…/Dropbox/RoommateLedger (end-to-end encrypted)`. Open Settings → Cloud sync and press **Sync now**.
+6. On the second computer repeat steps 1, 3 and 4 (same passphrase), then start the app. Your data appears.
+
+Notes: keep the app's own `data/` folder **outside** Dropbox (the default is fine); only the sync folder goes in Dropbox. Dropbox only moves the files, so each device that wants to use the app must run it (or use one hosted copy, see below). If Dropbox ever creates "conflicted copy" files, that means two devices wrote at the same instant while Dropbox was behind; the app ignores those files and reconciles on the next sync.
+
 ## Option 2: S3-compatible storage (works from servers too)
 
 Any S3-compatible bucket works. Backblaze B2 and Cloudflare R2 both have a free tier (10 GB), which is far more than a household needs.

@@ -4,6 +4,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import os from 'node:os';
 
 const safeKey = (key) => {
   if (!/^[\w./-]+$/.test(key) || key.includes('..')) throw new Error(`Unsafe sync key: ${key}`);
@@ -111,6 +112,13 @@ export class EncryptedRemote {
   del(key) { return this.inner.del(key); }
 }
 
+// dotenv does not expand "~", so do it here ("~/Dropbox/x" or "~" alone), and make the path absolute.
+export function expandPath(p) {
+  const home = os.homedir();
+  const expanded = p === '~' ? home : /^~[/\\]/.test(p) ? path.join(home, p.slice(2)) : p;
+  return path.resolve(expanded);
+}
+
 /** Build a remote from environment variables, or null when sync is not configured. */
 export function remoteFromEnv(env = process.env) {
   let remote = null;
@@ -119,7 +127,7 @@ export function remoteFromEnv(env = process.env) {
       bucket: env.S3_BUCKET, prefix: env.S3_PREFIX || '', endpoint: env.S3_ENDPOINT || undefined, region: env.S3_REGION || 'auto',
       accessKeyId: env.S3_ACCESS_KEY_ID, secretAccessKey: env.S3_SECRET_ACCESS_KEY,
     });
-  } else if (env.SYNC_DIR) remote = new DirRemote(env.SYNC_DIR);
+  } else if (env.SYNC_DIR) remote = new DirRemote(expandPath(env.SYNC_DIR.trim()));
   if (remote && env.SYNC_PASSPHRASE) remote = new EncryptedRemote(remote, env.SYNC_PASSPHRASE);
   return remote;
 }

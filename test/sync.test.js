@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createApp } from '../src/app.js';
-import { DirRemote, EncryptedRemote, S3Remote } from '../src/remote.js';
+import { DirRemote, EncryptedRemote, S3Remote, expandPath, remoteFromEnv } from '../src/remote.js';
 
 const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(32, 5)]);
 const tmp = (p) => fs.mkdtemp(path.join(os.tmpdir(), `${p}-`));
@@ -166,4 +166,12 @@ test('S3Remote speaks the S3 protocol through the SDK (mocked)', async () => {
   assert.equal(await r.get('ledger.json'), null);
   assert.match(r.label, /s3\.example\.com\/b\/family/);
   await assert.rejects(() => r.put('../evil', Buffer.from('x')), /Unsafe/);
+});
+
+test('SYNC_DIR accepts ~ (dotenv does not expand it) and becomes an absolute path', () => {
+  assert.equal(expandPath('~/Dropbox/RoommateLedger'), path.join(os.homedir(), 'Dropbox', 'RoommateLedger'));
+  assert.equal(expandPath('~'), os.homedir());
+  assert.ok(path.isAbsolute(expandPath('relative/dir')));
+  assert.equal(remoteFromEnv({ SYNC_DIR: '~/Dropbox/X' }).label, path.join(os.homedir(), 'Dropbox', 'X'));
+  assert.equal(remoteFromEnv({}), null);
 });
