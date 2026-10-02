@@ -33,6 +33,25 @@ Install the same drive client on your other machine, set the same variable, star
 
 Notes: keep the app's own `data/` folder **outside** Dropbox (the default is fine); only the sync folder goes in Dropbox. Dropbox only moves the files, so each device that wants to use the app must run it (or use one hosted copy, see below). If Dropbox ever creates "conflicted copy" files, that means two devices wrote at the same instant while Dropbox was behind; the app ignores those files and reconciles on the next sync.
 
+## Option 1b: Sign in with Dropbox (no desktop client; works on servers)
+
+The app talks to Dropbox itself and shows a **Connect Dropbox** button in Settings → Cloud sync. It uses Dropbox's normal sign-in/consent screen (OAuth 2 with PKCE; no app secret is needed) and an **App folder** app, so it can only see `Dropbox/Apps/<your app name>`, never the rest of your Dropbox.
+
+One-time setup (about 5 minutes):
+
+1. Go to <https://www.dropbox.com/developers/apps> → **Create app** → **Scoped access** → **App folder** → pick a name.
+2. **Permissions** tab: tick `files.content.read` and `files.content.write`, then **Submit**. (Do this before connecting; permissions are fixed at sign-in time.)
+3. **Settings** tab → **Redirect URIs**: add `http://localhost:3000/api/dropbox/callback` (use your real address and port; if you host the app online use `https://your-domain/api/dropbox/callback`, and set `APP_URL=https://your-domain` so the app builds the same URI). Settings → Cloud sync shows the exact URI to paste.
+4. Copy the **App key** into `.env`: `DROPBOX_APP_KEY=…`. Restart the app.
+5. Settings → Cloud sync → (optionally enter an **encryption passphrase**) → **Connect Dropbox** → approve in Dropbox. You land back in the app, synced.
+6. On another device: run the app with the same `DROPBOX_APP_KEY`, press **Connect Dropbox**, sign in to the same Dropbox and use the same passphrase.
+
+Notes:
+- The long-lived refresh token is stored in `data/dropbox-auth.json` (owner-only permissions) and is never uploaded. Keep `data/` private. **Disconnect Dropbox** revokes it and deletes the file; your data stays.
+- If Dropbox already holds a ledger when you connect, it is loaded and your current local data is saved next to it as `ledger.conflict-<time>.json`. If Dropbox is empty, your local data is uploaded.
+- A Dropbox "development" app can be used by up to 500 users with no review, which is plenty for a household. Nobody else can use your app key without being an authorised user of that app.
+- The Dropbox API is not available on offline machines; the app keeps working locally and syncs when it is back online.
+
 ## Option 2: S3-compatible storage (works from servers too)
 
 Any S3-compatible bucket works. Backblaze B2 and Cloudflare R2 both have a free tier (10 GB), which is far more than a household needs.

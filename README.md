@@ -18,7 +18,7 @@ A self-hosted, open-source **single place for all money matters with your roomma
 - **Recurring bills**: tick "Repeat every month" on an expense (rent, internet); entries are created automatically, catching up on months missed while the server was off.
 - **Duplicate guard**: warns when the same receipt file is already attached to another entry.
 - **Optional Splitwise import**: read-only, repeatable, failure-tolerant.
-- **Cloud sync, so it works from any device**: mirror the ledger and receipts to a Dropbox/Drive/iCloud/OneDrive folder or an S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3), optionally end-to-end encrypted. Devices pick up each other's changes, offline edits are kept and uploaded later, and conflicts never lose data. See [docs/CLOUD.md](docs/CLOUD.md).
+- **Cloud sync, so it works from any device**: **Sign in with Dropbox** (a Connect button; no desktop client needed), or mirror the ledger and receipts to a Dropbox/Drive/iCloud/OneDrive folder or an S3-compatible bucket (Backblaze B2, Cloudflare R2, AWS S3), optionally end-to-end encrypted. Devices pick up each other's changes, offline edits are kept and uploaded later, and conflicts never lose data. See [docs/CLOUD.md](docs/CLOUD.md).
 - **Exports**: CSV and full JSON. Your data is plain files in `data/`.
 - Search and filter by text, person, category and month; entries grouped by day; modern responsive UI with light/dark themes, mobile bottom navigation and avatars; optional password.
 
@@ -52,6 +52,7 @@ Turn on [cloud sync](docs/CLOUD.md) to keep an off-site copy and use the same le
 | `DATA_DIR` | `./data` | Ledger and receipt storage |
 | `APP_PASSWORD` | _(none)_ | Require HTTP Basic auth (any username) |
 | `SPLITWISE_API_KEY` | _(none)_ | Server-side key for the optional import |
+| `DROPBOX_APP_KEY` / `APP_URL` | _(none)_ | Enables the "Connect Dropbox" button ([docs/CLOUD.md](docs/CLOUD.md)) |
 | `SYNC_DIR` / `S3_*` | _(none)_ | Cloud sync location ([docs/CLOUD.md](docs/CLOUD.md)) |
 | `SYNC_PASSPHRASE` | _(none)_ | End-to-end encrypt synced data |
 | `ANTHROPIC_API_KEY` | _(none)_ | Enables optional AI receipt reading |

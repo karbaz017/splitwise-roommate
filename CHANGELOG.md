@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.0]
+### Added
+- Sign in with Dropbox: a Connect button (OAuth 2 + PKCE, App-folder scope) that syncs the ledger and receipts through the Dropbox API directly, with optional end-to-end encryption, automatic token refresh and a Disconnect button
+### Fixed
+- `~` in `SYNC_DIR` / `DATA_DIR` is expanded (dotenv does not)
+
 ## [2.4.0]
 ### Added
 - Cloud sync to a cloud-drive folder (`SYNC_DIR`) or any S3-compatible bucket, with optional end-to-end encryption (`SYNC_PASSPHRASE`); pull-before-write, offline tolerance, conflict copies, live refresh, status pill and Settings card

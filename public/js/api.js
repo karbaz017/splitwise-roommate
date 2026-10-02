@@ -29,6 +29,8 @@ const swHeaders = () => {
 };
 
 export const API = {
+  dropboxPrepare: (passphrase) => request('/api/dropbox/prepare', { method: 'POST', body: { passphrase } }),
+  dropboxDisconnect: () => request('/api/dropbox/disconnect', { method: 'POST' }),
   syncStatus: () => request('/api/sync/status'),
   syncNow: () => request('/api/sync/now', { method: 'POST' }),
   recurring: () => request('/api/recurring'),

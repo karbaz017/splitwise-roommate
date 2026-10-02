@@ -88,19 +88,47 @@ async function renderSync(fresh) {
     pill.innerHTML = `${ic('cloud', 'sm')} ${st.lastError ? 'Sync problem' : st.pending ? 'Waiting to sync' : `Synced ${ago(st.lastSyncedAt)}`}`;
   }
   $('sync-badge').textContent = st.enabled ? (st.encrypted ? 'on · encrypted' : 'on') : 'off';
-  $('sync-body').innerHTML = st.enabled
-    ? `<p class="muted">Your ledger and receipts are mirrored to <strong>${esc(st.location)}</strong>${st.encrypted ? ' and encrypted before they leave this machine' : ''}. Run the app on any device with the same settings and you’ll see the same data.</p>
+  const dbx = st.dropbox || {};
+  if (st.enabled) {
+    $('sync-body').innerHTML = `<p class="muted">Your ledger and receipts are mirrored to <strong>${esc(st.location)}</strong>${st.encrypted ? ' and encrypted before they leave this machine' : ''}. Connect the same ${st.provider === 'dropbox' ? 'Dropbox account' : 'location'} on another device and you’ll see the same data.</p>
        <div class="line"><div class="grow">Last synced</div><strong>${esc(ago(st.lastSyncedAt))}</strong></div>
        <div class="line"><div class="grow">Pending changes</div><strong>${st.pending ? 'yes (will upload when online)' : 'none'}</strong></div>
        ${st.lastError ? `<div class="form-error">${esc(st.lastError)}</div>` : ''}
-       ${st.conflictFile ? `<div class="callout">Two devices changed things while apart. The cloud version was kept; your other version is saved on this device as <code>${esc(st.conflictFile)}</code>.</div>` : ''}
-       <div class="actions"><button class="btn btn-primary" id="sync-now" type="button">Sync now</button></div>`
-    : `<p class="muted">Right now your data lives only on the machine running this app. To use it from other devices, or to keep an off-site copy, turn on cloud sync by setting environment variables (see <code>docs/CLOUD.md</code>). The simplest option is a folder your cloud drive already syncs:</p>
-       <pre class="snippet">SYNC_DIR=~/Dropbox/RoommateLedger
-SYNC_PASSPHRASE=a long secret phrase   # optional: end-to-end encryption</pre>
-       <p class="muted">Or any S3-compatible storage (Backblaze B2, Cloudflare R2, AWS S3) with <code>S3_BUCKET</code>, <code>S3_ENDPOINT</code>, <code>S3_ACCESS_KEY_ID</code>, <code>S3_SECRET_ACCESS_KEY</code>.</p>`;
+       ${st.conflictFile ? `<div class="callout">Your Dropbox/cloud already held a ledger (or two devices changed things while apart). The cloud version was kept; your other version is saved on this device as <code>${esc(st.conflictFile)}</code>.</div>` : ''}
+       <div class="actions"><button class="btn btn-primary" id="sync-now" type="button">Sync now</button>${dbx.connected ? '<button class="btn btn-ghost" id="dbx-disconnect" type="button">Disconnect Dropbox</button>' : ''}</div>`;
+  } else if (dbx.configured) {
+    $('sync-body').innerHTML = `<p class="muted">Sign in with Dropbox to keep your ledger and receipts in a private app folder in your Dropbox. Use the same Dropbox on any other device to see the same data. The app can only see its own folder, never the rest of your Dropbox.</p>
+       <div class="field-group"><label for="dbx-pass">Encryption passphrase <span class="muted">(recommended)</span></label><input class="field" type="password" id="dbx-pass" autocomplete="new-password" placeholder="Same passphrase on every device (8+ characters)"></div>
+       <div class="actions"><button class="btn btn-primary" id="dbx-connect" type="button">${ic('cloud', 'sm')} Connect Dropbox</button></div>
+       <p class="muted">With a passphrase, Dropbox only stores unreadable data, and it can’t be recovered if you lose it. If your Dropbox already holds a ledger it is loaded here, and your current local data is saved as a backup file.</p>`;
+  } else {
+    $('sync-body').innerHTML = `<p class="muted">Right now your data lives only on the machine running this app. To use it from other devices, or keep an off-site copy, turn on cloud sync. The nicest way is <strong>Sign in with Dropbox</strong>; it needs a one-time setup (about 5 minutes):</p>
+       <ol class="steps">
+         <li>Open <a href="https://www.dropbox.com/developers/apps" target="_blank" rel="noopener">dropbox.com/developers/apps</a> → <em>Create app</em> → <em>Scoped access</em> → <em>App folder</em> → give it a name.</li>
+         <li>On its <em>Permissions</em> tab tick <code>files.content.read</code> and <code>files.content.write</code>, then Submit.</li>
+         <li>On its <em>Settings</em> tab add this <em>Redirect URI</em>: <code>${esc(dbx.redirectUri || '')}</code></li>
+         <li>Copy the <em>App key</em> into <code>.env</code> as <code>DROPBOX_APP_KEY=…</code> and restart the app. A “Connect Dropbox” button appears here.</li>
+       </ol>
+       <p class="muted">Prefer something else? A folder your cloud drive syncs (<code>SYNC_DIR</code>) or S3-compatible storage also work. See <code>docs/CLOUD.md</code>.</p>`;
+  }
+  $('sync-body').querySelector('#dbx-connect')?.addEventListener('click', connectDropbox);
+  $('sync-body').querySelector('#dbx-disconnect')?.addEventListener('click', disconnectDropbox);
   const btn = $('sync-now');
   if (btn) btn.onclick = syncNow;
+}
+
+async function connectDropbox() {
+  const btn = $('dbx-connect');
+  btn.disabled = true;
+  try {
+    const { url } = await API.dropboxPrepare($('dbx-pass').value);
+    window.location.href = url; // Dropbox's own sign-in and consent screen
+  } catch (err) { toast(err.message, 'error'); btn.disabled = false; }
+}
+
+async function disconnectDropbox() {
+  if (!confirm('Disconnect Dropbox? Your data stays on this device and in Dropbox, but changes will stop syncing.')) return;
+  try { await renderSync(await API.dropboxDisconnect()); toast('Dropbox disconnected.'); } catch (err) { toast(err.message, 'error'); }
 }
 
 async function syncNow() {
@@ -1111,4 +1139,15 @@ async function mutatePerson(fn) {
 
 bind();
 $('sync-pill').onclick = syncNow;
+{
+  const q = new URLSearchParams(window.location.search);
+  if (q.has('dropbox')) {
+    window.history.replaceState({}, '', '/');
+    setTimeout(() => {
+      switchTab('settings');
+      if (q.get('dropbox') === 'connected') toast('Dropbox connected. Your ledger is syncing.');
+      else toast(`Couldn’t connect Dropbox: ${q.get('message') || 'unknown error'}`, 'error');
+    }, 400);
+  }
+}
 load().then(renderTab).then(() => renderSync().then(() => { state.lastRev = state.sync?.rev ?? null; })).catch((err) => toast(err.message, 'error'));
