@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.2.0]
+### Changed
+- UI redesign: modern light/dark design system, hero summary, avatars, day-grouped expense list, segmented split control, sticky save bar, mobile bottom navigation and bottom-sheet dialogs
+- The expense form now starts with the receipt area (upload / take photo / drop / paste); it was previously at the bottom and easy to miss
+- Icons are an inline SVG sprite; no icon CDN is needed
+### Added
+- "Scan receipt" buttons on every screen and a mobile floating button; drop a file anywhere or paste anywhere to start an expense from it
+- Manual dark/light toggle
+
 ## [2.1.0]
 ### Added
 - Item-by-item splitting (shared items, proportional tax/tip/discount) with live per-person preview

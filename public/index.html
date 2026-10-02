@@ -2,230 +2,309 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>Roommate Ledger</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <!-- Icons are decorative; the app works fully if this CDN script is blocked. -->
-  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js" defer></script>
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/ledger.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/app.css">
+  <script>try{var t=localStorage.getItem('ledger_theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
 </head>
 <body>
-  <div class="app-container">
+  <!-- Icon sprite (inline so the UI never depends on a CDN) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></symbol>
+      <symbol id="i-layout" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></symbol>
+      <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M5 3h14v18l-3-2-2 2-2-2-2 2-2-2-3 2z"/><path d="M9 8h6M9 12h6"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17.5" cy="9" r="2.5"/><path d="M17 14c2.7 0 4.5 1.8 4.5 4.5"/></symbol>
+      <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v12M7 11l5 5 5-5M4 20h16"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4-4"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+      <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z"/></symbol>
+      <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4"/></symbol>
+      <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></symbol>
+      <symbol id="i-coins" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v10M9.5 9.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/></symbol>
+      <symbol id="i-plug" viewBox="0 0 24 24"><path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"/></symbol>
+      <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="5.5" rx="8" ry="3"/><path d="M4 5.5v13c0 1.7 3.6 3 8 3s8-1.3 8-3v-13M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></symbol>
+      <symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-8 8a5 5 0 0 1-7-7l9-9a3.5 3.5 0 0 1 5 5l-9 9a2 2 0 0 1-3-3l8-8"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    </defs>
+  </svg>
+
+  <div class="app">
+    <!-- Sidebar (desktop) / top bar (mobile) -->
     <aside class="sidebar">
-      <div class="sidebar-header">
-        <div class="logo"><i data-lucide="wallet" class="logo-icon"></i><span id="household-name">Roommate<span class="logo-accent">Ledger</span></span></div>
+      <div class="brand">
+        <span class="brand-mark"><svg class="i"><use href="#i-coins"/></svg></span>
+        <span class="brand-name" id="household-name">Roommate Ledger</span>
       </div>
 
-      <div class="viewing-as">
-        <label for="me-select">Viewing as</label>
-        <select id="me-select"></select>
-      </div>
-
-      <nav class="nav-menu" id="nav">
-        <button class="nav-item active" data-tab="dashboard"><i data-lucide="layout-dashboard"></i><span>Dashboard</span></button>
-        <button class="nav-item" data-tab="expenses"><i data-lucide="receipt"></i><span>Expenses</span></button>
-        <button class="nav-item" data-tab="people"><i data-lucide="users"></i><span>Roommates</span></button>
-        <button class="nav-item" data-tab="settings"><i data-lucide="settings"></i><span>Settings</span></button>
+      <nav class="nav" id="nav" aria-label="Main">
+        <button class="nav-item active" data-tab="dashboard"><svg class="i"><use href="#i-layout"/></svg><span>Home</span></button>
+        <button class="nav-item" data-tab="expenses"><svg class="i"><use href="#i-receipt"/></svg><span>Expenses</span></button>
+        <button class="nav-item" data-tab="people"><svg class="i"><use href="#i-users"/></svg><span>Roommates</span></button>
+        <button class="nav-item" data-tab="settings"><svg class="i"><use href="#i-settings"/></svg><span>Settings</span></button>
       </nav>
+
+      <div class="sidebar-foot">
+        <div class="viewing-as">
+          <label for="me-select">Viewing as</label>
+          <div class="select"><select id="me-select"></select></div>
+        </div>
+        <button class="icon-btn" id="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode"><svg class="i"><use href="#i-moon"/></svg></button>
+      </div>
     </aside>
 
-    <main class="main-content">
-      <!-- Dashboard -->
+    <main class="main">
+      <!-- ================= Home ================= -->
       <section class="tab-panel active" id="dashboard-panel">
-        <div class="panel-header">
-          <h1>Dashboard</h1>
-          <div class="header-actions">
-            <button class="btn btn-primary" data-action="add-expense"><i data-lucide="plus"></i> Add Expense</button>
-            <button class="btn btn-secondary" data-action="settle"><i data-lucide="hand-coins"></i> Settle Up</button>
+        <div id="onboarding" class="card onboarding hidden"></div>
+
+        <div class="hero">
+          <div class="hero-text">
+            <p class="hero-hello" id="hello">Welcome</p>
+            <h1 class="hero-amount" id="m-net">–</h1>
+            <p class="hero-sub" id="m-net-desc"></p>
+          </div>
+          <div class="hero-actions">
+            <button class="btn btn-primary btn-lg" data-action="scan"><svg class="i"><use href="#i-camera"/></svg> Scan receipt</button>
+            <button class="btn btn-soft btn-lg" data-action="add-expense"><svg class="i"><use href="#i-plus"/></svg> Add expense</button>
+            <button class="btn btn-ghost btn-lg" data-action="settle"><svg class="i"><use href="#i-coins"/></svg> Settle up</button>
           </div>
         </div>
-        <div id="onboarding" class="dashboard-card hidden"></div>
-        <div class="metrics-grid">
-          <div class="metric-card balance-net"><div class="metric-info"><span class="metric-label">Your net balance</span><h2 class="metric-value" id="m-net">–</h2><span class="metric-sub" id="m-net-desc"></span></div></div>
-          <div class="metric-card balance-owed"><div class="metric-info"><span class="metric-label">You owe</span><h2 class="metric-value" id="m-owe">–</h2><span class="metric-sub text-danger">to roommates</span></div></div>
-          <div class="metric-card balance-receivable"><div class="metric-info"><span class="metric-label">You are owed</span><h2 class="metric-value" id="m-owed">–</h2><span class="metric-sub text-success">from roommates</span></div></div>
+
+        <div class="stats">
+          <div class="stat"><span class="stat-label">You owe</span><strong class="stat-value neg" id="m-owe">–</strong></div>
+          <div class="stat"><span class="stat-label">You're owed</span><strong class="stat-value pos" id="m-owed">–</strong></div>
         </div>
-        <div class="dashboard-grid">
-          <div class="dashboard-card">
-            <h3><i data-lucide="arrow-left-right"></i> Who should pay whom</h3>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3 class="card-title">Who pays whom</h3>
             <div id="transfers"></div>
-            <h3 class="mt"><i data-lucide="users"></i> Balances</h3>
+            <h3 class="card-title spaced">Balances</h3>
             <div id="balances"></div>
           </div>
-          <div class="dashboard-card">
-            <h3><i data-lucide="pie-chart"></i> Spending by category <small id="cat-range"></small></h3>
+          <div class="card">
+            <h3 class="card-title">Your spending <small id="cat-range"></small></h3>
             <div id="categories"></div>
-            <h3 class="mt"><i data-lucide="clock"></i> Recent activity</h3>
-            <div class="activity-list" id="recent"></div>
+            <h3 class="card-title spaced">Recent activity</h3>
+            <div id="recent"></div>
           </div>
         </div>
       </section>
 
-      <!-- Expenses -->
+      <!-- ================= Expenses ================= -->
       <section class="tab-panel" id="expenses-panel">
-        <div class="panel-header">
+        <header class="page-head">
           <h1>Expenses</h1>
-          <div class="header-actions">
-            <button class="btn btn-primary" data-action="add-expense"><i data-lucide="plus"></i> Add Expense</button>
-            <button class="btn btn-secondary" data-action="settle"><i data-lucide="hand-coins"></i> Settle Up</button>
-            <a class="btn btn-outline" href="/api/export/expenses.csv" download><i data-lucide="download"></i> CSV</a>
+          <div class="head-actions">
+            <button class="btn btn-primary" data-action="scan"><svg class="i"><use href="#i-camera"/></svg> Scan receipt</button>
+            <button class="btn btn-soft" data-action="add-expense"><svg class="i"><use href="#i-plus"/></svg> Add</button>
+            <a class="btn btn-ghost hide-sm" href="/api/export/expenses.csv" download><svg class="i"><use href="#i-download"/></svg> CSV</a>
           </div>
+        </header>
+        <div class="filters">
+          <label class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Search expenses"></label>
+          <div class="select"><select id="f-person" aria-label="Filter by person"><option value="">Everyone</option></select></div>
+          <div class="select"><select id="f-category" aria-label="Filter by category"><option value="">All categories</option></select></div>
+          <input type="month" id="f-month" aria-label="Filter by month" class="field month-filter">
+          <button class="btn btn-ghost btn-sm" id="f-clear" type="button">Clear</button>
         </div>
-        <div class="filter-bar">
-          <div class="search-input-wrapper"><i data-lucide="search"></i><input type="text" id="f-search" placeholder="Search description, notes, category..."></div>
-          <div class="select-wrapper"><select id="f-person" aria-label="Filter by person"><option value="">Everyone</option></select></div>
-          <div class="select-wrapper"><select id="f-category" aria-label="Filter by category"><option value="">All categories</option></select></div>
-          <input type="month" id="f-month" aria-label="Filter by month" class="month-filter">
-          <button class="btn btn-icon btn-outline" id="f-clear" title="Clear filters" aria-label="Clear filters"><i data-lucide="rotate-ccw"></i></button>
-        </div>
-        <div class="expenses-list" id="expense-list"></div>
-        <div class="pagination">
-          <button class="btn btn-outline btn-sm" id="prev">Previous</button>
-          <span class="pagination-info" id="page-info"></span>
-          <button class="btn btn-outline btn-sm" id="next">Next</button>
+        <div id="expense-list"></div>
+        <div class="pager">
+          <button class="btn btn-ghost btn-sm" id="prev">← Previous</button>
+          <span id="page-info" class="muted"></span>
+          <button class="btn btn-ghost btn-sm" id="next">Next →</button>
         </div>
       </section>
 
-      <!-- People -->
+      <!-- ================= People ================= -->
       <section class="tab-panel" id="people-panel">
-        <div class="panel-header"><h1>Roommates</h1></div>
-        <form class="dashboard-card inline-form" id="person-form">
-          <div class="form-group flex-2"><label for="p-name">Name</label><input id="p-name" maxlength="60" required placeholder="e.g. Asha"></div>
-          <div class="form-group flex-2"><label for="p-email">Email (optional)</label><input id="p-email" type="email" maxlength="120" placeholder="for your own reference"></div>
-          <button class="btn btn-primary" type="submit"><i data-lucide="user-plus"></i> Add roommate</button>
+        <header class="page-head"><h1>Roommates</h1></header>
+        <form class="card inline-form" id="person-form">
+          <div class="field-group grow"><label for="p-name">Name</label><input class="field" id="p-name" maxlength="60" required placeholder="e.g. Asha"></div>
+          <div class="field-group grow"><label for="p-email">Email <span class="muted">(optional)</span></label><input class="field" id="p-email" type="email" maxlength="120" placeholder="for your own reference"></div>
+          <button class="btn btn-primary" type="submit"><svg class="i"><use href="#i-plus"/></svg> Add roommate</button>
         </form>
-        <div class="cards-grid" id="people-grid"></div>
+        <div class="people-grid" id="people-grid"></div>
       </section>
 
-      <!-- Settings -->
+      <!-- ================= Settings ================= -->
       <section class="tab-panel" id="settings-panel">
-        <div class="panel-header"><h1>Settings</h1></div>
-        <div class="settings-container">
-          <form class="settings-card" id="settings-form">
-            <h3><i data-lucide="home"></i> Household</h3>
-            <div class="form-row">
-              <div class="form-group flex-2"><label for="s-name">Household name</label><input id="s-name" maxlength="60" required></div>
-              <div class="form-group flex-1"><label for="s-currency">Currency code</label><input id="s-currency" maxlength="3" required pattern="[A-Za-z]{3}" placeholder="USD"></div>
+        <header class="page-head"><h1>Settings</h1></header>
+        <div class="settings">
+          <form class="card" id="settings-form">
+            <h3 class="card-title"><svg class="i"><use href="#i-home"/></svg> Household</h3>
+            <div class="row">
+              <div class="field-group grow-2"><label for="s-name">Household name</label><input class="field" id="s-name" maxlength="60" required></div>
+              <div class="field-group grow"><label for="s-currency">Currency</label><input class="field" id="s-currency" maxlength="3" required pattern="[A-Za-z]{3}" placeholder="USD"></div>
             </div>
-            <div class="settings-actions"><button class="btn btn-primary" type="submit">Save</button></div>
+            <div class="actions"><button class="btn btn-primary" type="submit">Save</button></div>
           </form>
-          <div class="settings-card hidden" id="ai-card">
-            <h3><i data-lucide="sparkles"></i> AI receipt reading <span class="badge">enabled by server</span></h3>
-            <p class="settings-desc">Your server has an AI key configured. When on, receipts you attach are sent to Anthropic to be read (better with messy photos, other languages and long item lists). When off, or if it fails, receipts are read locally in your browser.</p>
-            <label class="check-inline"><input type="checkbox" id="ai-toggle"> Use AI reading in this browser</label>
+
+          <div class="card hidden" id="ai-card">
+            <h3 class="card-title"><svg class="i"><use href="#i-sparkles"/></svg> AI receipt reading <span class="pill">enabled by server</span></h3>
+            <p class="muted">When on, receipts you attach are sent to Anthropic to be read (better with messy photos, other languages and long item lists). When off, or if it fails, they are read privately in your browser.</p>
+            <label class="check"><input type="checkbox" id="ai-toggle"> Use AI reading in this browser</label>
           </div>
-          <div class="settings-card">
-            <h3><i data-lucide="repeat"></i> Recurring bills</h3>
-            <p class="settings-desc">Tick "Repeat every month" when adding an expense and it is created automatically each month (missed months are caught up when the server starts).</p>
+
+          <div class="card">
+            <h3 class="card-title"><svg class="i"><use href="#i-repeat"/></svg> Recurring bills</h3>
+            <p class="muted">Tick “Repeat every month” when adding an expense (rent, internet…) and it’s created automatically each month.</p>
             <div id="rec-list"></div>
           </div>
-          <div class="settings-card" id="sw-card">
-            <h3><i data-lucide="plug"></i> Splitwise <span class="badge">optional</span></h3>
-            <p class="settings-desc">This ledger works on its own. If you have existing history in Splitwise you can import it here (read-only, safe to repeat). Splitwise's API now needs a Pro subscription on the developer account, so if this fails nothing else is affected.</p>
-            <div class="form-group">
-              <label for="sw-key">Personal API key</label>
-              <input type="password" id="sw-key" autocomplete="off" placeholder="Paste key from secure.splitwise.com/apps">
+
+          <div class="card" id="sw-card">
+            <h3 class="card-title"><svg class="i"><use href="#i-plug"/></svg> Splitwise <span class="pill">optional</span></h3>
+            <p class="muted">This ledger works on its own. Import existing Splitwise history here (read-only, safe to repeat). Splitwise’s API needs a Pro subscription on the developer account; if it fails nothing else is affected.</p>
+            <div class="field-group"><label for="sw-key">Personal API key</label><input class="field" type="password" id="sw-key" autocomplete="off" placeholder="From secure.splitwise.com/apps"></div>
+            <div class="actions">
+              <button class="btn btn-ghost" id="sw-test" type="button">Test connection</button>
+              <button class="btn btn-primary" id="sw-import" type="button">Import</button>
+              <button class="btn btn-ghost" id="sw-forget" type="button">Forget key</button>
             </div>
-            <div class="settings-actions">
-              <button class="btn btn-outline" id="sw-test" type="button">Test connection</button>
-              <button class="btn btn-primary" id="sw-import" type="button">Import from Splitwise</button>
-              <button class="btn btn-outline" id="sw-forget" type="button">Forget key</button>
-            </div>
-            <div class="detect hidden" id="sw-status" role="status"></div>
-            <p class="muted">The key is kept only in this browser (or in <code>SPLITWISE_API_KEY</code> on the server) and is sent only to this server. Only entries in the household currency whose shares add up are imported; re-importing updates changed entries.</p>
+            <div class="callout hidden" id="sw-status" role="status"></div>
           </div>
-          <div class="settings-card">
-            <h3><i data-lucide="database"></i> Your data</h3>
-            <p class="settings-desc">Everything lives in the server's <code>data/</code> folder (<code>ledger.json</code> plus a <code>receipts/</code> folder). Back that folder up and you have backed up everything.</p>
-            <div class="settings-actions">
-              <a class="btn btn-outline" href="/api/export/expenses.csv" download><i data-lucide="download"></i> Export expenses (CSV)</a>
-              <a class="btn btn-outline" href="/api/export/ledger.json" download><i data-lucide="download"></i> Export ledger (JSON)</a>
+
+          <div class="card">
+            <h3 class="card-title"><svg class="i"><use href="#i-db"/></svg> Your data</h3>
+            <p class="muted">Everything lives in the server’s <code>data/</code> folder (<code>ledger.json</code> and <code>receipts/</code>). Back that folder up and you’ve backed up everything.</p>
+            <div class="actions">
+              <a class="btn btn-ghost" href="/api/export/expenses.csv" download><svg class="i"><use href="#i-download"/></svg> Expenses (CSV)</a>
+              <a class="btn btn-ghost" href="/api/export/ledger.json" download><svg class="i"><use href="#i-download"/></svg> Full ledger (JSON)</a>
             </div>
           </div>
         </div>
       </section>
     </main>
+
+    <!-- Mobile floating action button -->
+    <button class="fab" data-action="scan" aria-label="Scan receipt"><svg class="i"><use href="#i-camera"/></svg></button>
   </div>
 
-  <!-- Expense modal -->
+  <!-- ================= Expense modal ================= -->
   <div class="modal-backdrop hidden" id="expense-modal" role="dialog" aria-modal="true" aria-labelledby="expense-modal-title">
-    <div class="modal modal-lg">
-      <div class="modal-header"><h2 id="expense-modal-title">Add Expense</h2><button class="btn-close" type="button" data-close aria-label="Close">&times;</button></div>
-      <form id="expense-form" novalidate>
+    <div class="modal">
+      <div class="modal-head">
+        <h2 id="expense-modal-title">Add expense</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="expense-form" novalidate class="modal-form">
         <div class="modal-body">
-          <div class="form-row">
-            <div class="form-group flex-2"><label for="e-desc">Description <span class="required">*</span></label><input id="e-desc" maxlength="200" required placeholder="e.g. Electricity bill"></div>
-            <div class="form-group flex-1"><label for="e-amount">Amount <span class="required">*</span></label><input id="e-amount" type="number" step="0.01" min="0.01" inputmode="decimal" required placeholder="0.00"></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group flex-1"><label for="e-date">Date <span class="required">*</span></label><input id="e-date" type="date" required></div>
-            <div class="form-group flex-1"><label for="e-category">Category</label><select id="e-category"></select></div>
-          </div>
-          <label class="check-inline" id="e-repeat-row"><input type="checkbox" id="e-repeat"> Repeat every month on this day (rent, internet…)</label>
-          <div class="form-group">
-            <label for="e-paid-by">Paid by</label>
-            <div class="paid-by-row">
-              <select id="e-paid-by"></select>
-              <label class="check-inline"><input type="checkbox" id="e-multi-payer"> Multiple payers</label>
+          <!-- 1. Receipt first: this is the fastest way to fill in everything below -->
+          <section class="step">
+            <div id="e-receipts"></div>
+            <div class="callout hidden" id="e-detect" role="status"></div>
+          </section>
+
+          <section class="step">
+            <div class="amount-row">
+              <label class="amount-field" for="e-amount"><span class="cur" id="e-cur">$</span><input id="e-amount" type="number" step="0.01" min="0.01" inputmode="decimal" required placeholder="0.00" aria-label="Amount"></label>
             </div>
-          </div>
-          <div class="split-setup-container">
-            <div class="split-setup-header">
-              <h3>Split between</h3>
-              <select id="e-method" class="split-mode-dropdown">
-                <option value="equal">Equally</option>
-                <option value="shares">By shares</option>
-                <option value="percentage">By percentage</option>
-                <option value="exact">By exact amounts</option>
-                <option value="items">Item by item</option>
-              </select>
+            <div class="field-group"><label for="e-desc">What was it for?</label><input class="field" id="e-desc" maxlength="200" required placeholder="e.g. Electricity bill"></div>
+            <div class="row">
+              <div class="field-group grow"><label for="e-date">Date</label><input class="field" id="e-date" type="date" required></div>
+              <div class="field-group grow"><label for="e-category">Category</label><div class="select"><select id="e-category"></select></div></div>
             </div>
+          </section>
+
+          <section class="step">
+            <div class="step-head"><h3>Paid by</h3><label class="check"><input type="checkbox" id="e-multi-payer"> Multiple payers</label></div>
+            <div class="select"><select id="e-paid-by"></select></div>
+          </section>
+
+          <section class="step">
+            <div class="step-head"><h3>Split</h3></div>
+            <div class="seg" id="e-method-seg" role="tablist" aria-label="Split method">
+              <button type="button" data-method="equal">Equally</button>
+              <button type="button" data-method="items">By item</button>
+              <button type="button" data-method="shares">Shares</button>
+              <button type="button" data-method="percentage">%</button>
+              <button type="button" data-method="exact">Exact</button>
+            </div>
+            <select id="e-method" hidden>
+              <option value="equal">Equally</option><option value="shares">By shares</option><option value="percentage">By percentage</option>
+              <option value="exact">By exact amounts</option><option value="items">Item by item</option>
+            </select>
             <div id="e-participants"></div>
             <div id="e-items" class="hidden"></div>
-            <div class="split-validation-bar" id="e-validation"></div>
-          </div>
-          <div class="form-group"><label for="e-notes">Notes</label><textarea id="e-notes" rows="2" maxlength="1000" placeholder="Optional"></textarea></div>
-          <div class="form-group"><label>Receipts</label><div id="e-receipts"></div><div class="detect hidden" id="e-detect" role="status"></div></div>
+            <div class="validation" id="e-validation"></div>
+          </section>
+
+          <section class="step">
+            <div class="field-group"><label for="e-notes">Notes <span class="muted">(optional)</span></label><textarea class="field" id="e-notes" rows="2" maxlength="1000" placeholder="Anything worth remembering"></textarea></div>
+            <label class="check" id="e-repeat-row"><input type="checkbox" id="e-repeat"> <svg class="i sm"><use href="#i-repeat"/></svg> Repeat every month on this day (rent, internet…)</label>
+          </section>
+
           <div class="form-error hidden" id="e-error" role="alert"></div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" data-close>Cancel</button>
-          <button type="submit" class="btn btn-primary" id="e-submit">Save Expense</button>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="e-submit">Save expense</button>
         </div>
       </form>
     </div>
   </div>
 
-  <!-- Settle modal -->
+  <!-- ================= Settle modal ================= -->
   <div class="modal-backdrop hidden" id="settle-modal" role="dialog" aria-modal="true" aria-labelledby="settle-title">
-    <div class="modal modal-md">
-      <div class="modal-header"><h2 id="settle-title">Record a payment</h2><button class="btn-close" type="button" data-close aria-label="Close">&times;</button></div>
-      <form id="settle-form" novalidate>
+    <div class="modal modal-sm">
+      <div class="modal-head">
+        <h2 id="settle-title">Record a payment</h2>
+        <button class="icon-btn" type="button" data-close aria-label="Close"><svg class="i"><use href="#i-x"/></svg></button>
+      </div>
+      <form id="settle-form" novalidate class="modal-form">
         <div class="modal-body">
-          <div class="form-row">
-            <div class="form-group flex-1"><label for="s-from">Who paid</label><select id="s-from"></select></div>
-            <div class="form-group flex-1"><label for="s-to">Paid to</label><select id="s-to"></select></div>
-          </div>
-          <div class="form-row">
-            <div class="form-group flex-1"><label for="s-amount">Amount</label><input id="s-amount" type="number" step="0.01" min="0.01" inputmode="decimal" required></div>
-            <div class="form-group flex-1"><label for="s-date">Date</label><input id="s-date" type="date" required></div>
-          </div>
-          <div class="form-group"><label for="s-notes">Note</label><input id="s-notes" maxlength="1000" placeholder="e.g. Bank transfer, UPI, cash"></div>
-          <div class="form-group"><label>Proof of payment</label><div id="s-receipts"></div></div>
+          <section class="step">
+            <div class="row">
+              <div class="field-group grow"><label for="s-from">Who paid</label><div class="select"><select id="s-from"></select></div></div>
+              <div class="field-group grow"><label for="s-to">Paid to</label><div class="select"><select id="s-to"></select></div></div>
+            </div>
+            <div class="row">
+              <div class="field-group grow"><label for="s-amount">Amount</label><input class="field" id="s-amount" type="number" step="0.01" min="0.01" inputmode="decimal" required placeholder="0.00"></div>
+              <div class="field-group grow"><label for="s-date">Date</label><input class="field" id="s-date" type="date" required></div>
+            </div>
+            <div class="field-group"><label for="s-notes">Note <span class="muted">(optional)</span></label><input class="field" id="s-notes" maxlength="1000" placeholder="Bank transfer, UPI, cash…"></div>
+          </section>
+          <section class="step">
+            <div class="step-head"><h3>Proof of payment <span class="muted">(optional)</span></h3></div>
+            <div id="s-receipts"></div>
+          </section>
           <div class="form-error hidden" id="s-error" role="alert"></div>
         </div>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" data-close>Cancel</button>
-          <button type="submit" class="btn btn-primary" id="s-submit">Record payment</button>
+        <div class="modal-foot">
+          <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+          <button type="submit" class="btn btn-primary btn-lg" id="s-submit">Record payment</button>
         </div>
       </form>
     </div>
   </div>
 
-  <div class="toast-container" id="toast-container"></div>
+  <!-- Drop-anywhere overlay -->
+  <div class="drop-overlay hidden" id="drop-overlay" aria-hidden="true">
+    <div class="drop-card"><svg class="i xl"><use href="#i-upload"/></svg><strong>Drop your receipt</strong><span>We’ll read it and start a new expense</span></div>
+  </div>
+
+  <!-- Mobile bottom nav -->
+  <nav class="bottom-nav" id="bottom-nav" aria-label="Main">
+    <button class="nav-item active" data-tab="dashboard"><svg class="i"><use href="#i-layout"/></svg><span>Home</span></button>
+    <button class="nav-item" data-tab="expenses"><svg class="i"><use href="#i-receipt"/></svg><span>Expenses</span></button>
+    <button class="nav-item" data-tab="people"><svg class="i"><use href="#i-users"/></svg><span>People</span></button>
+    <button class="nav-item" data-tab="settings"><svg class="i"><use href="#i-settings"/></svg><span>Settings</span></button>
+  </nav>
+
+  <div class="toasts" id="toast-container" aria-live="polite"></div>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>

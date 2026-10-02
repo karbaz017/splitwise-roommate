@@ -1,4 +1,4 @@
-import { esc, formatBytes, icons, toast } from './util.js';
+import { esc, formatBytes, ic, icons, toast } from './util.js';
 import { API } from './api.js';
 
 const ACCEPT = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif', 'application/pdf'];
@@ -10,8 +10,10 @@ const MAX_FILES = 10;
  * Holds not-yet-uploaded files in memory; `existing` are receipts already saved.
  */
 export class ReceiptPicker {
-  constructor(root) {
+  constructor(root, { title = 'Add a receipt', hint = 'Drop it here, paste (Ctrl/⌘+V), or browse. We’ll read it and fill in the details.' } = {}) {
     this.root = root;
+    this.title = title;
+    this.hint = hint;
     this.pending = [];
     this.existing = [];
     this.expenseId = null;
@@ -28,6 +30,9 @@ export class ReceiptPicker {
     this.expenseId = expenseId;
     this.render();
   }
+
+  // Open the file chooser (must be called from a user gesture).
+  browse() { this.input?.click(); }
 
   get files() { return this.pending.map((p) => p.file); }
 
@@ -93,21 +98,34 @@ export class ReceiptPicker {
         </div>`),
     ].join('');
 
+    const touch = window.matchMedia?.('(pointer: coarse)').matches;
     this.root.innerHTML = `
-      <div class="dropzone" tabindex="0" role="button" aria-label="Attach receipts: click, drop files, or paste">
-        <div class="dropzone-text"><strong>Attach receipts</strong><span>Click to browse, drag &amp; drop, or paste (Ctrl/⌘+V)</span><small>JPG, PNG, WebP, HEIC or PDF · up to 10 MB each</small></div>
-        <input type="file" accept="image/*,application/pdf,.heic,.pdf" multiple hidden>
+      <div class="dropzone" tabindex="0" role="button" aria-label="${esc(this.title)}: click, drop files, or paste">
+        <span class="dz-icon">${ic('upload')}</span>
+        <div class="dz-text"><strong>${esc(this.title)}</strong><span>${esc(this.hint)}</span><small>JPG, PNG, WebP, HEIC or PDF · up to 10 MB each</small></div>
+        <div class="dz-buttons">
+          <button type="button" class="btn btn-primary" data-browse>${ic('upload', 'sm')} Upload file</button>
+          ${touch ? `<button type="button" class="btn btn-soft" data-camera>${ic('camera', 'sm')} Take photo</button>` : ''}
+        </div>
+        <input type="file" accept="image/*,application/pdf,.heic,.pdf" multiple hidden data-file>
+        <input type="file" accept="image/*" capture="environment" hidden data-cam>
       </div>
       <div class="receipt-list">${chips}</div>`;
 
     const zone = this.root.querySelector('.dropzone');
-    const input = this.root.querySelector('input');
+    const input = this.root.querySelector('[data-file]');
+    const cam = this.root.querySelector('[data-cam]');
+    this.input = input;
     zone.onclick = () => input.click();
     zone.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } };
+    this.root.querySelector('[data-browse]').onclick = (e) => { e.stopPropagation(); input.click(); };
+    const camBtn = this.root.querySelector('[data-camera]');
+    if (camBtn) camBtn.onclick = (e) => { e.stopPropagation(); cam.click(); };
     input.onchange = () => { this.add([...input.files]); input.value = ''; };
-    ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.add('drag'); }));
-    ['dragleave', 'drop'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); zone.classList.remove('drag'); }));
-    zone.addEventListener('drop', (e) => this.add([...e.dataTransfer.files]));
+    cam.onchange = () => { this.add([...cam.files]); cam.value = ''; };
+    ['dragenter', 'dragover'].forEach((ev) => zone.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); zone.classList.add('drag'); }));
+    zone.addEventListener('dragleave', (e) => { e.preventDefault(); zone.classList.remove('drag'); });
+    zone.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); zone.classList.remove('drag'); this.add([...e.dataTransfer.files]); });
 
     this.root.querySelectorAll('[data-remove-pending]').forEach((b) => {
       b.onclick = () => {

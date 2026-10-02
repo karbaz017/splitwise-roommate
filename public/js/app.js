@@ -2,7 +2,7 @@ import { API } from './api.js';
 import { ReceiptPicker } from './receipts.js';
 import { analyzeReceipt, mergeResults } from './ocr.js';
 import { computeItemSplits, toCents } from '/shared/money.js';
-import { esc, money, setCurrency, todayISO, formatDate, icons, toast, debounce } from './util.js';
+import { esc, money, setCurrency, currencySymbol, todayISO, formatDate, icons, ic, avatar, categoryEmoji, dayLabel, toast, debounce } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const PAGE = 15;
@@ -85,32 +85,36 @@ async function renderTab() {
 // ---------------------------------------------------------------- dashboard
 async function renderDashboard() {
   const people = active();
+  const me = state.people.find((p) => p.id === state.me);
   $('onboarding').classList.toggle('hidden', people.length >= 2);
   if (people.length < 2) {
-    $('onboarding').innerHTML = `<h3><i data-lucide="sparkles"></i> Welcome</h3>
-      <p class="settings-desc">Add everyone who shares expenses with you (including yourself) on the <a href="#" data-goto="people">Roommates</a> tab, then start adding expenses. No account or Splitwise connection needed.</p>`;
+    $('onboarding').innerHTML = `<h3 class="card-title">${ic('sparkles')} Let’s get you set up</h3>
+      <ol><li>Add everyone who shares expenses (including you) on the <a href="#" data-goto="people">Roommates</a> tab.</li>
+      <li>Pick who you are in the top-right “Viewing as” menu.</li>
+      <li>Tap <strong>Scan receipt</strong> or <strong>Add expense</strong>. No account or Splitwise needed.</li></ol>`;
   }
-  const [bal, recent, all] = await Promise.all([API.balances(), API.expenses({ limit: 8 }), API.expenses({ limit: 200 })]);
+  const [bal, recent, all] = await Promise.all([API.balances(), API.expenses({ limit: 6 }), API.expenses({ limit: 200 })]);
   const mine = bal.net[state.me] || 0;
   const owe = bal.transfers.filter((t) => t.from === state.me).reduce((a, t) => a + t.cents, 0);
   const owed = bal.transfers.filter((t) => t.to === state.me).reduce((a, t) => a + t.cents, 0);
-  $('m-net').textContent = money(mine, { sign: true });
-  $('m-net').className = `metric-value ${mine > 0 ? 'text-success' : mine < 0 ? 'text-danger' : ''}`;
-  $('m-net-desc').textContent = mine > 0 ? 'Overall you are owed' : mine < 0 ? 'Overall you owe' : 'You are settled up';
+  const hour = new Date().getHours();
+  $('hello').textContent = `${hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'}${me ? `, ${me.name.split(' ')[0]}` : ''}`;
+  $('m-net').textContent = mine === 0 ? 'All settled up' : money(Math.abs(mine));
+  $('m-net-desc').textContent = mine > 0 ? 'in total, others owe you' : mine < 0 ? 'in total, you owe others' : 'Nobody owes anybody anything 🎉';
   $('m-owe').textContent = money(owe);
   $('m-owed').textContent = money(owed);
 
   $('transfers').innerHTML = bal.transfers.length
-    ? bal.transfers.map((t) => `<div class="bal-row transfer ${t.from === state.me ? 'mine' : ''}">
-        <span><strong>${esc(youOr(t.from))}</strong> ${t.from === state.me ? 'pay' : 'pays'} <strong>${esc(youOr(t.to))}</strong></span>
+    ? bal.transfers.map((t) => `<div class="transfer ${t.from === state.me ? 'mine' : ''}">
+        <div class="who">${avatar(nameOf(t.from), 'sm')}<span><strong>${esc(youOr(t.from))}</strong> ${t.from === state.me ? 'pay' : 'pays'} <strong>${esc(youOr(t.to))}</strong></span></div>
         <span class="amt">${money(t.cents)}</span>
-        <button class="btn btn-outline btn-sm" data-settle-from="${esc(t.from)}" data-settle-to="${esc(t.to)}" data-settle-amount="${t.cents}">Record payment</button>
+        <button class="btn btn-soft btn-sm" data-settle-from="${esc(t.from)}" data-settle-to="${esc(t.to)}" data-settle-amount="${t.cents}">Record payment</button>
       </div>`).join('')
-    : '<p class="muted">Everyone is settled up. 🎉</p>';
+    : `<div class="empty"><strong>Everyone is settled up</strong>New expenses will show up here.</div>`;
 
   $('balances').innerHTML = people.map((p) => {
     const v = bal.net[p.id] || 0;
-    return `<div class="bal-row"><span>${esc(youOr(p.id))}</span><span class="amt ${v > 0 ? 'text-success' : v < 0 ? 'text-danger' : ''}">${v === 0 ? 'settled' : v > 0 ? `is owed ${money(v)}` : `owes ${money(-v)}`}</span></div>`;
+    return `<div class="line">${avatar(p.name)}<div class="grow"><strong>${esc(youOr(p.id))}</strong></div><span class="amt ${v > 0 ? 'pos' : v < 0 ? 'neg' : 'muted'}">${v === 0 ? 'settled' : v > 0 ? `gets back ${money(v)}` : `owes ${money(-v)}`}</span></div>`;
   }).join('') || '<p class="muted">No roommates yet.</p>';
 
   // Category totals for the current month, based on the viewer's own share.
@@ -122,24 +126,27 @@ async function renderDashboard() {
   });
   const rows = Object.entries(totals).sort((a, b) => b[1] - a[1]);
   const max = rows[0]?.[1] || 1;
-  $('cat-range').textContent = `· your share, ${new Date().toLocaleDateString(undefined, { month: 'long' })}`;
-  $('categories').innerHTML = rows.map(([c, v]) => `<div class="bar-row"><span>${esc(c)}</span><div class="bar"><i style="width:${(v / max) * 100}%"></i></div><span class="amt">${money(v)}</span></div>`).join('') || '<p class="muted">No spending recorded this month.</p>';
+  $('cat-range').textContent = `· ${new Date().toLocaleDateString(undefined, { month: 'long' })}`;
+  $('categories').innerHTML = rows.map(([c, v]) => `<div class="bar-row"><span>${categoryEmoji(c)} ${esc(c)}</span><div class="bar"><i style="width:${(v / max) * 100}%"></i></div><span class="amt">${money(v)}</span></div>`).join('') || '<p class="muted">Nothing recorded this month yet.</p>';
 
-  $('recent').innerHTML = recent.expenses.map((e) => `<div class="activity-item"><div class="act-info"><span class="act-desc">${esc(e.description)}</span><span class="act-meta">${formatDate(e.date)} · ${esc(e.category)}</span></div><div style="text-align:right"><span class="act-amount">${money(e.amountCents)}</span><div class="act-meta ${involvement(e).cls}">${esc(involvement(e).text)}</div></div></div>`).join('') || '<p class="muted">Nothing yet.</p>';
+  $('recent').innerHTML = recent.expenses.map((e) => {
+    const inv = involvement(e);
+    return `<div class="line"><span class="exp-icon">${categoryEmoji(e.category)}</span><div class="grow"><strong>${esc(e.description)}</strong><div class="sub">${formatDate(e.date)}</div></div><div style="text-align:right"><div class="amt">${money(e.amountCents)}</div><div class="sub ${inv.cls}">${esc(inv.text)}</div></div></div>`;
+  }).join('') || `<div class="empty"><strong>No activity yet</strong><button class="btn btn-primary" data-action="scan">${ic('camera')} Scan your first receipt</button></div>`;
 }
 
 function involvement(e) {
   const paid = e.paidBy.find((p) => p.personId === state.me)?.cents || 0;
   const owed = e.splits.find((s) => s.personId === state.me)?.cents || 0;
   if (e.type === 'settlement') {
-    if (paid) return { text: `you paid ${nameOf(e.splits[0].personId)}`, cls: 'text-success' };
-    if (owed) return { text: `${nameOf(e.paidBy[0].personId)} paid you`, cls: 'text-success' };
+    if (paid) return { text: `you paid ${nameOf(e.splits[0].personId)}`, cls: 'pos' };
+    if (owed) return { text: `${nameOf(e.paidBy[0].personId)} paid you`, cls: 'pos' };
     return { text: 'not involved', cls: '' };
   }
   const net = paid - owed;
   if (!paid && !owed) return { text: 'not involved', cls: '' };
-  if (net > 0) return { text: `you lent ${money(net)}`, cls: 'text-success' };
-  if (net < 0) return { text: `you owe ${money(-net)}`, cls: 'text-danger' };
+  if (net > 0) return { text: `you lent ${money(net)}`, cls: 'pos' };
+  if (net < 0) return { text: `you owe ${money(-net)}`, cls: 'neg' };
   return { text: 'even', cls: '' };
 }
 
@@ -158,35 +165,50 @@ async function renderExpenses() {
   state.total = data.total;
   const pages = Math.max(1, Math.ceil(data.total / PAGE));
   if (state.page >= pages) { state.page = pages - 1; return renderExpenses(); }
-  $('page-info').textContent = `Page ${state.page + 1} of ${pages} · ${data.total} entr${data.total === 1 ? 'y' : 'ies'}`;
+  $('page-info').textContent = data.total ? `Page ${state.page + 1} of ${pages} · ${data.total} entr${data.total === 1 ? 'y' : 'ies'}` : '';
   $('prev').disabled = state.page === 0;
   $('next').disabled = state.page + 1 >= pages;
-  $('expense-list').innerHTML = data.expenses.map(expenseCard).join('') || `<div class="dashboard-card empty"><p>No entries match.</p></div>`;
+  $('prev').parentElement.classList.toggle('hidden', pages <= 1);
+  const filtered = Object.values(state.filters).some(Boolean);
+  if (!data.expenses.length) {
+    $('expense-list').innerHTML = filtered
+      ? `<div class="card empty"><strong>No entries match</strong>Try clearing the filters.</div>`
+      : `<div class="card empty"><strong>No expenses yet</strong>Snap a receipt and we’ll fill in the details for you.<br><button class="btn btn-primary" data-action="scan">${ic('camera')} Scan receipt</button></div>`;
+    return undefined;
+  }
+  let html = '';
+  let lastDay = '';
+  for (const e of data.expenses) {
+    if (e.date !== lastDay) { html += `<div class="day-head">${esc(dayLabel(e.date))}</div>`; lastDay = e.date; }
+    html += expenseCard(e);
+  }
+  $('expense-list').innerHTML = html;
+  return undefined;
 }
 
 function expenseCard(e) {
   const inv = involvement(e);
-  const payers = e.paidBy.map((p) => `${youOr(p.personId)} ${money(p.cents)}`).join(', ');
-  const splits = e.splits.map((s) => `<div class="split-user-row"><span class="split-username">${esc(youOr(s.personId))}</span><span class="split-details">${e.type === 'settlement' ? 'received' : 'owes'} ${money(s.cents)}</span></div>`).join('');
+  const payers = e.paidBy.map((p) => youOr(p.personId)).join(' & ');
+  const splits = e.splits.map((s) => `<div class="split-line"><span>${avatar(nameOf(s.personId), 'sm')} ${esc(youOr(s.personId))}</span><span>${e.type === 'settlement' ? 'received' : 'owes'} ${money(s.cents)}</span></div>`).join('');
   const receipts = (e.receipts || []).map((r) => `<a class="receipt-mini" href="${API.receiptUrl(r.file)}" target="_blank" rel="noopener" title="${esc(r.name)}">${r.mime.startsWith('image/') && r.mime !== 'image/heic' ? `<img src="${API.receiptUrl(r.file)}" alt="${esc(r.name)}" loading="lazy">` : `<span>${r.mime === 'application/pdf' ? 'PDF' : 'IMG'}</span>`}</a>`).join('');
-  const itemsHtml = e.items?.length ? `<div class="items-detail">${e.items.map((it) => `<div class="split-user-row"><span class="split-username">${esc(it.name || 'Item')}</span><span class="split-details">${money(it.cents)} · ${esc(it.personIds.map(youOr).join(', '))}</span></div>`).join('')}${e.extraCents ? `<div class="split-user-row"><span class="split-username">Tax, tip &amp; fees</span><span class="split-details">${money(e.extraCents)}</span></div>` : ''}</div>` : '';
-  return `<div class="expense-card-wrapper" data-id="${esc(e.id)}">
-    <div class="expense-card" data-toggle>
-      <div class="expense-details">
-        <span class="expense-desc">${e.type === 'settlement' ? '💸 ' : ''}${esc(e.description)}${(e.receipts || []).length ? ` <span class="clip" title="${e.receipts.length} receipt(s)">📎${e.receipts.length}</span>` : ''}</span>
-        <span class="expense-meta">${formatDate(e.date)} · ${esc(e.category)} · paid by ${esc(payers)}</span>
+  const itemsHtml = e.items?.length ? `<div class="items-detail">${e.items.map((it) => `<div class="split-line"><span>${esc(it.name || 'Item')} <span class="muted">· ${esc(it.personIds.map(youOr).join(', '))}</span></span><span>${money(it.cents)}</span></div>`).join('')}${e.extraCents ? `<div class="split-line"><span>Tax, tip &amp; fees</span><span>${money(e.extraCents)}</span></div>` : ''}</div>` : '';
+  const repeat = e.source === 'recurring' ? ` <span class="clip" title="Recurring">${ic('repeat', 'sm')}</span>` : '';
+  return `<div class="exp" data-id="${esc(e.id)}">
+    <div class="exp-main" data-toggle>
+      <span class="exp-icon">${categoryEmoji(e.category)}</span>
+      <div class="exp-body">
+        <div class="exp-title"><span class="t">${esc(e.description)}</span>${repeat}${(e.receipts || []).length ? `<span class="clip" title="${e.receipts.length} receipt(s)">${ic('clip', 'sm')}${e.receipts.length}</span>` : ''}</div>
+        <div class="exp-meta">${esc(e.category)} · paid by ${esc(payers)}</div>
       </div>
-      <div class="expense-financials">
-        <div class="fin-block"><span class="fin-label">${esc(inv.text)}</span><span class="fin-value ${inv.cls}">${money(e.amountCents)}</span></div>
-      </div>
-      <div class="expense-actions">
-        <button title="Edit" aria-label="Edit" data-edit="${esc(e.id)}">✎</button>
-        <button class="btn-delete-expense" title="Delete" aria-label="Delete" data-delete="${esc(e.id)}">🗑</button>
+      <div class="exp-right"><div class="amt">${money(e.amountCents)}</div><div class="exp-sub ${inv.cls}">${esc(inv.text)}</div></div>
+      <div class="exp-actions">
+        <button title="Edit" aria-label="Edit" data-edit="${esc(e.id)}">${ic('pencil', 'sm')}</button>
+        <button class="del" title="Delete" aria-label="Delete" data-delete="${esc(e.id)}">${ic('trash', 'sm')}</button>
       </div>
     </div>
-    <div class="expense-expanded-details">
+    <div class="exp-detail">
       ${itemsHtml}
-      <div class="expanded-splits-grid">${splits}</div>
+      ${splits}
       ${e.notes ? `<p class="notes">${esc(e.notes)}</p>` : ''}
       ${receipts ? `<div class="receipt-strip">${receipts}</div>` : ''}
     </div>
@@ -195,27 +217,28 @@ function expenseCard(e) {
 
 // ---------------------------------------------------------------- people
 function renderPeople() {
-  $('people-grid').innerHTML = state.people.map((p) => `<div class="entity-card ${p.active ? '' : 'archived'}">
-    <div class="entity-body">
-      <span class="entity-title">${esc(p.name)} ${p.id === state.me ? '<span class="badge">you</span>' : ''} ${p.active ? '' : '<span class="badge">archived</span>'}</span>
-      <span class="entity-desc">${esc(p.email || '')}</span>
+  $('people-grid').innerHTML = state.people.map((p) => `<div class="person-card ${p.active ? '' : 'archived'}">
+    ${avatar(p.name, 'lg')}
+    <div class="info">
+      <strong>${esc(p.name)} ${p.id === state.me ? '<span class="badge">you</span>' : ''} ${p.active ? '' : '<span class="badge">archived</span>'}</strong>
+      <span class="muted">${esc(p.email || '')}</span>
       <div class="person-actions">
-        <button class="btn btn-outline btn-sm" data-rename="${esc(p.id)}">Rename</button>
-        ${p.active ? `<button class="btn btn-outline btn-sm" data-remove-person="${esc(p.id)}">Remove</button>` : `<button class="btn btn-outline btn-sm" data-restore="${esc(p.id)}">Restore</button>`}
+        <button class="btn btn-ghost btn-sm" data-rename="${esc(p.id)}">Rename</button>
+        ${p.active ? `<button class="btn btn-ghost btn-sm" data-remove-person="${esc(p.id)}">Remove</button>` : `<button class="btn btn-ghost btn-sm" data-restore="${esc(p.id)}">Restore</button>`}
       </div>
-    </div></div>`).join('') || '<p class="muted">No roommates yet. Add the first one above.</p>';
+    </div></div>`).join('') || `<div class="card empty" style="grid-column:1/-1"><strong>No roommates yet</strong>Add the first one above (don’t forget yourself).</div>`;
 }
 
 // ---------------------------------------------------------------- recurring bills
 async function renderRecurring() {
   const { rules } = await API.recurring();
-  $('rec-list').innerHTML = rules.map((r) => `<div class="bal-row">
-      <span><strong>${esc(r.template.description)}</strong> · ${money(Math.round(Number(r.template.amount) * 100))} · day ${r.day}<br>
-      <small class="muted">${r.active ? `next: ${formatDate(r.nextDue)}` : 'paused'}${r.lastError ? ` · <span class="text-danger">${esc(r.lastError)}</span>` : ''}</small></span>
-      <span class="person-actions">
-        <button class="btn btn-outline btn-sm" data-rec-toggle="${esc(r.id)}" data-active="${r.active}">${r.active ? 'Pause' : 'Resume'}</button>
-        <button class="btn btn-outline btn-sm" data-rec-del="${esc(r.id)}">Delete</button>
-      </span></div>`).join('') || '<p class="muted">No recurring bills yet.</p>';
+  $('rec-list').innerHTML = rules.map((r) => `<div class="line">
+      <span class="exp-icon">${categoryEmoji(r.template.category)}</span>
+      <div class="grow"><strong>${esc(r.template.description)}</strong> · ${money(Math.round(Number(r.template.amount) * 100))}
+      <div class="sub">day ${r.day} · ${r.active ? `next: ${formatDate(r.nextDue)}` : 'paused'}${r.lastError ? ` · <span class="neg">${esc(r.lastError)}</span>` : ''}</div></div>
+      <button class="btn btn-ghost btn-sm" data-rec-toggle="${esc(r.id)}" data-active="${r.active}">${r.active ? 'Pause' : 'Resume'}</button>
+      <button class="btn btn-ghost btn-sm" data-rec-del="${esc(r.id)}">Delete</button>
+    </div>`).join('') || '<p class="muted" style="margin:0">No recurring bills yet.</p>';
 }
 
 // ---------------------------------------------------------------- expense modal
@@ -242,6 +265,7 @@ function openExpense(expense = null) {
   $('e-date').value = expense?.date || todayISO();
   $('e-category').value = expense?.category || 'Other';
   $('e-notes').value = expense?.notes || '';
+  $('e-cur').textContent = currencySymbol();
   $('e-error').classList.add('hidden');
   $('e-repeat').checked = false;
   $('e-repeat-row').classList.toggle('hidden', !!expense);
@@ -286,6 +310,7 @@ function openExpense(expense = null) {
 
 function renderRows() {
   const method = $('e-method').value;
+  document.querySelectorAll('#e-method-seg button').forEach((b) => b.classList.toggle('on', b.dataset.method === method));
   const itemsMode = method === 'items';
   $('e-participants').classList.toggle('hidden', itemsMode);
   $('e-items').classList.toggle('hidden', !itemsMode);
@@ -302,7 +327,7 @@ function renderRows() {
   const label = { equal: '', shares: 'shares', percentage: '%', exact: 'amount' }[method];
   $('e-participants').innerHTML = `<div class="rows-head"><span>Person</span>${multi ? '<span>Paid</span>' : ''}<span>${label ? `Owes (${label})` : 'Owes'}</span></div>` +
     state.rows.map((r, i) => `<div class="split-row ${r.included ? '' : 'off'}" data-i="${i}">
-      <label class="check-inline"><input type="checkbox" data-f="included" ${r.included ? 'checked' : ''}> ${esc(r.name)}</label>
+      <label class="check"><input type="checkbox" data-f="included" ${r.included ? 'checked' : ''}> ${avatar(r.name, 'sm')} ${esc(r.name)}</label>
       ${multi ? `<input type="number" step="0.01" min="0" data-f="paid" value="${r.paid}" placeholder="0.00" aria-label="Paid by ${esc(r.name)}">` : ''}
       ${method === 'equal' ? `<span class="calc" data-calc="${i}"></span>` : `<input type="number" step="${method === 'shares' ? '0.5' : '0.01'}" min="0" data-f="value" value="${r.value === '' && method === 'shares' ? 1 : r.value}" ${r.included ? '' : 'disabled'} aria-label="${label} for ${esc(r.name)}">`}
     </div>`).join('');
@@ -440,8 +465,8 @@ function renderItems() {
       <button type="button" class="receipt-remove" data-del-item aria-label="Remove item">&times;</button>
     </div>`).join('')}
     <div class="items-actions">
-      <button type="button" class="btn btn-outline btn-sm" id="e-add-item">+ Add item</button>
-      <button type="button" class="btn btn-outline btn-sm hidden" id="e-use-items-total">Set total to items</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="e-add-item">+ Add item</button>
+      <button type="button" class="btn btn-ghost btn-sm hidden" id="e-use-items-total">Set total to items</button>
     </div>
     <div class="items-summary" id="e-items-summary"></div>`;
   updateItemsSummary();
@@ -561,7 +586,7 @@ function showDetection(r) {
     applySuggestion(r);
     box.innerHTML = `✔ Filled from receipt${r.source === 'ai' ? ' (AI)' : ''}: ${parts}. Please double-check.${r.reconciled ? ' <small>(total matches items/subtotal + tax)</small>' : ''}`;
   } else {
-    box.innerHTML = `${confident ? 'Detected' : 'Low confidence, please check'}: ${parts || 'partial details'} <button type="button" class="btn btn-outline btn-sm" id="e-apply">Use these</button>`;
+    box.innerHTML = `${confident ? 'Detected' : 'Low confidence, please check'}: ${parts || 'partial details'} <button type="button" class="btn btn-ghost btn-sm" id="e-apply">Use these</button>`;
     $('e-apply').onclick = () => { applySuggestion(r); showApplied(); };
   }
   box.insertAdjacentHTML('beforeend', mismatch);
@@ -570,7 +595,7 @@ function showDetection(r) {
     box.querySelectorAll('[data-alt]').forEach((b) => { b.onclick = () => { $('e-amount').value = Number(b.dataset.alt).toFixed(2); updateValidation(); }; });
   }
   if (hasItems) {
-    box.insertAdjacentHTML('beforeend', `<div class="alts">${r.items.length} line items found <button type="button" class="btn btn-outline btn-sm" id="e-use-items">Split item by item</button></div>`);
+    box.insertAdjacentHTML('beforeend', `<div class="alts">${r.items.length} line items found <button type="button" class="btn btn-ghost btn-sm" id="e-use-items">Split item by item</button></div>`);
     $('e-use-items').onclick = () => {
       applySuggestion(r);
       state.items = r.items.map((it) => newItem(it.name, it.amount.toFixed(2)));
@@ -632,10 +657,10 @@ async function submitSettle(e) {
 
 // ---------------------------------------------------------------- events
 function bind() {
-  expensePicker = new ReceiptPicker($('e-receipts'));
+  expensePicker = new ReceiptPicker($('e-receipts'), { title: 'Start with a receipt', hint: 'Drop it here, paste (Ctrl/⌘+V) or browse. We’ll read it and fill in the details for you.' });
   expensePicker.onAdded = detectFromReceipt;
   expensePicker.onDuplicate = (file, d) => toast(`"${file.name}" is already attached to "${d.description}" (${formatDate(d.date)}, ${money(d.amountCents)}). Is this a duplicate?`, 'warning');
-  settlePicker = new ReceiptPicker($('s-receipts'));
+  settlePicker = new ReceiptPicker($('s-receipts'), { title: 'Attach proof of payment', hint: 'A screenshot of the transfer, or a photo of the note.' });
   settlePicker.onDuplicate = expensePicker.onDuplicate;
 
   document.addEventListener('click', async (e) => {
@@ -644,6 +669,9 @@ function bind() {
     const d = t.dataset;
     if (d.goto) { e.preventDefault(); switchTab(d.goto); }
     else if (d.action === 'add-expense') openExpense();
+    else if (d.action === 'scan') { openExpense(); expensePicker.browse(); }
+    else if (t.classList.contains('nav-item')) switchTab(d.tab);
+    else if (d.method) { $('e-method').value = d.method; renderRows(); }
     else if (d.action === 'settle') openSettle();
     else if (d.settleFrom) openSettle({ from: d.settleFrom, to: d.settleTo, amount: Number(d.settleAmount) });
     else if (d.close !== undefined) closeModals();
@@ -663,12 +691,14 @@ function bind() {
     } else if (d.restore) await mutatePerson(() => API.updatePerson(d.restore, { active: true }));
     else if (d.recToggle) { try { await API.updateRecurring(d.recToggle, { active: d.active !== 'true' }); await renderRecurring(); } catch (err) { toast(err.message, 'error'); } }
     else if (d.recDel) { if (confirm('Stop this recurring bill? Entries already created are kept.')) { try { await API.deleteRecurring(d.recDel); await renderRecurring(); } catch (err) { toast(err.message, 'error'); } } }
-    else if (t.closest('[data-toggle]') && !t.closest('.expense-actions')) t.closest('.expense-card-wrapper').classList.toggle('expanded');
+    else if (t.closest('[data-toggle]') && !t.closest('.exp-actions')) t.closest('.exp').classList.toggle('expanded');
   });
 
-  $('nav').addEventListener('click', (e) => { const b = e.target.closest('.nav-item'); if (b) switchTab(b.dataset.tab); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModals(); });
   document.querySelectorAll('.modal-backdrop').forEach((m) => m.addEventListener('mousedown', (e) => { if (e.target === m) closeModals(); }));
+
+  bindGlobalReceiptInput();
+  bindTheme();
 
   $('me-select').onchange = (e) => { state.me = e.target.value; localStorage.setItem('ledger_me', state.me); renderTab(); };
 
@@ -710,6 +740,46 @@ function bind() {
       await refresh();
     } catch (err) { toast(err.message, 'error'); }
   };
+}
+
+// Drop a file anywhere on the page, or paste a screenshot anywhere, to start a new expense from it.
+function bindGlobalReceiptInput() {
+  const overlay = $('drop-overlay');
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const route = (files) => {
+    if (!files.length) return;
+    if (!$('settle-modal').classList.contains('hidden')) { settlePicker.add(files); return; }
+    if ($('expense-modal').classList.contains('hidden')) openExpense();
+    if (!$('expense-modal').classList.contains('hidden')) expensePicker.add(files);
+  };
+  window.addEventListener('dragenter', (e) => { if (hasFiles(e)) { depth++; overlay.classList.remove('hidden'); } });
+  window.addEventListener('dragleave', (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; overlay.classList.add('hidden'); } });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); depth = 0; overlay.classList.add('hidden');
+    route([...e.dataTransfer.files]);
+  });
+  document.addEventListener('paste', (e) => {
+    if (document.body.classList.contains('modal-open')) return; // the open modal handles its own paste
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName)) return;
+    const files = [...(e.clipboardData?.files || [])];
+    if (files.length) { e.preventDefault(); route(files); }
+  });
+}
+
+function bindTheme() {
+  const btn = $('theme-toggle');
+  const dark = () => (document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark';
+  const paint = () => { btn.innerHTML = ic(dark() ? 'sun' : 'moon'); };
+  btn.onclick = () => {
+    const next = dark() ? 'light' : 'dark';
+    document.documentElement.dataset.theme = next;
+    try { localStorage.setItem('ledger_theme', next); } catch { /* ignore */ }
+    paint();
+  };
+  paint();
 }
 
 function bindSplitwise() {

@@ -10,14 +10,14 @@ A self-hosted, open-source **single place for all money matters with your roomma
 - **Expenses** split equally, by shares, by percentage, by exact amounts, or **item by item** (groceries, restaurant bills), with one or several payers. In item mode each line item is assigned to the people who shared it, and tax, tip, fees and discounts are shared in proportion to what each person's items cost. Money is stored as integer cents, so splits always add up exactly.
 - **Balances & "who pays whom"**: net balance per person plus a minimal list of transfers to settle everyone.
 - **Settle up** with an optional proof-of-payment attachment.
-- **Receipts as image or PDF**: click to browse, **drag & drop**, or **paste** (Ctrl/⌘+V) a screenshot. JPG, PNG, WebP, GIF, HEIC and PDF up to 10 MB, validated by file signature.
+- **Receipts as image or PDF**, one gesture away from anywhere: a **Scan receipt** button on every screen (floating camera button on phones, plus **Take photo**), **drop a file anywhere** on the page, or **paste** (Ctrl/⌘+V) a screenshot anywhere. The expense form starts with the receipt so the details fill themselves in. JPG, PNG, WebP, GIF, HEIC and PDF up to 10 MB, validated by file signature.
 - **Receipt detection**: reads the total, date, merchant, category, tax/tip and **line items** from photos, digital PDFs and scanned PDFs and pre-fills the form (you confirm). By default it runs entirely in your browser (Tesseract OCR + pdf.js). It tries several passes (straightening, contrast/adaptive thresholding, denoising, alternate layouts, 90°/180°/270° rotation, HEIC conversion), repairs common OCR digit mistakes, cross-checks the total against subtotal + tax + tip or the item list, offers alternative totals, and flags low confidence instead of guessing.
 - **Optional AI reading**: set `ANTHROPIC_API_KEY` to have an AI model read messy receipts and other languages. Off unless configured; it sends the receipt to Anthropic (see Privacy), shows when it was used, and falls back to local OCR on any failure.
 - **Recurring bills**: tick "Repeat every month" on an expense (rent, internet); entries are created automatically, catching up on months missed while the server was off.
 - **Duplicate guard**: warns when the same receipt file is already attached to another entry.
 - **Optional Splitwise import**: read-only, repeatable, failure-tolerant.
 - **Exports**: CSV and full JSON. Your data is plain files in `data/`.
-- Search and filter by text, person, category and month; works on mobile; optional password.
+- Search and filter by text, person, category and month; entries grouped by day; modern responsive UI with light/dark themes, mobile bottom navigation and avatars; optional password.
 
 ## Quick start
 
