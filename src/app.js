@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
@@ -41,13 +42,27 @@ function basicAuth(password) {
   };
 }
 
-export async function createApp({ dataDir, password = '', splitwiseKey = '', anthropicKey = '', anthropicModel = '', fetchImpl = fetch } = {}) {
-  const store = await new Store(dataDir).init();
+export async function createApp({ dataDir, remote = null, syncCheckMs, password = '', splitwiseKey = '', anthropicKey = '', anthropicModel = '', fetchImpl = fetch } = {}) {
+  const store = await new Store(dataDir, { remote, ...(syncCheckMs !== undefined ? { syncCheckMs } : {}) }).init();
   const app = express();
   app.disable('x-powered-by');
   app.set('store', store);
   app.use(basicAuth(password));
   app.use(express.json({ limit: '1mb' }));
+
+  // Reads see changes made on other devices (throttled; never blocks on cloud errors).
+  app.use('/api', wrap(async (req, res, next) => {
+    if (req.method === 'GET' && !req.path.startsWith('/sync') && req.path !== '/health') await store.ensureFresh();
+    next();
+  }));
+  app.get('/api/sync/status', (req, res) => res.json(store.status()));
+  app.post('/api/sync/now', wrap(async (req, res) => res.json(await store.syncNow())));
+
+  // Delete receipt files locally and (when cloud sync is on) in the cloud.
+  const dropReceipts = async (list) => {
+    await removeReceiptFiles(store.receiptsDir, list);
+    await store.queueReceiptDelete(list.map((r) => r.file));
+  };
 
   const data = () => store.data;
   // A draft is only touchable by its owner (?owner=<personId>); finished entries by anyone.
@@ -177,7 +192,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       if (i < 0) throw notFound('Expense');
       return d.expenses.splice(i, 1)[0];
     });
-    await removeReceiptFiles(store.receiptsDir, removed.receipts || []);
+    await dropReceipts(removed.receipts || []);
     res.json({ deleted: true });
   }));
 
@@ -193,6 +208,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       throw new ValidationError(`An expense can have at most ${MAX_RECEIPTS_PER_EXPENSE} receipts`);
     }
     const saved = await saveReceipts(store.receiptsDir, files);
+    await store.queueReceiptUpload(saved.map((r) => r.file)); // upload before the ledger points at the files
     try {
       const expense = await store.mutate((d) => {
         const e = d.expenses.find((x) => x.id === req.params.id && canTouch(x, req));
@@ -203,7 +219,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       });
       res.status(201).json({ expense: publicExpense(expense), added: saved });
     } catch (err) {
-      await removeReceiptFiles(store.receiptsDir, saved);
+      await dropReceipts(saved);
       throw err;
     }
   }));
@@ -217,7 +233,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       e.updatedAt = new Date().toISOString();
       return e.receipts.splice(i, 1)[0];
     });
-    await removeReceiptFiles(store.receiptsDir, [removed]);
+    await dropReceipts([removed]);
     res.json({ deleted: true });
   }));
 
@@ -229,9 +245,11 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     res.json({ duplicate: e ? { id: e.id, description: e.description, date: e.date, amountCents: e.amountCents } : null });
   });
 
-  app.get('/api/receipts/:file', (req, res) => {
+  app.get('/api/receipts/:file', wrap(async (req, res) => {
     const { file } = req.params;
     if (!RECEIPT_FILE_RE.test(file)) throw notFound('Receipt');
+    // Uploaded from another device? Pull it down on first view.
+    if (store.remote && !(await fs.access(path.join(store.receiptsDir, file)).then(() => true, () => false))) await store.fetchReceipt(file);
     const meta = data().expenses.flatMap((e) => e.receipts || []).find((r) => r.file === file);
     res.set({
       'Content-Type': mimeForFile(file),
@@ -242,7 +260,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     res.sendFile(file, { root: store.receiptsDir }, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'not_found', message: 'Receipt not found' });
     });
-  });
+  }));
 
   // ---- Drafts (private to the person who saved them) ------------------------
   const ownerOf = (req) => String(req.query.owner || req.body?.ownerId || '');
@@ -283,7 +301,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       if (i < 0) throw notFound('Draft');
       return d.expenses.splice(i, 1)[0];
     });
-    await removeReceiptFiles(store.receiptsDir, removed.receipts || []);
+    await dropReceipts(removed.receipts || []);
     res.json({ deleted: true });
   }));
 

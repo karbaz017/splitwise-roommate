@@ -1,18 +1,21 @@
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { createApp } from './src/app.js';
+import { remoteFromEnv } from './src/remote.js';
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
 const dataDir = path.resolve(process.env.DATA_DIR || './data');
 
-const app = await createApp({ dataDir, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '',
+const remote = remoteFromEnv();
+const app = await createApp({ dataDir, remote, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '',
   anthropicKey: process.env.ANTHROPIC_API_KEY || '', anthropicModel: process.env.ANTHROPIC_MODEL || '' });
 
 app.listen(PORT, () => {
   console.log(`Roommate ledger running at http://localhost:${PORT}`);
   console.log(`Data directory: ${dataDir}`);
+  console.log(remote ? `Cloud sync: ${remote.label}${remote.encrypted ? ' (end-to-end encrypted)' : ''}` : 'Cloud sync: off (data stays on this machine; see docs/CLOUD.md)');
   if (!process.env.APP_PASSWORD) {
     console.log('Tip: set APP_PASSWORD in .env if this server is reachable by other devices.');
   }
