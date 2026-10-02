@@ -19,3 +19,9 @@
 **Is my receipt sent anywhere?** Not unless the server has `ANTHROPIC_API_KEY` and AI reading is on in your browser (Settings). Then that receipt goes to Anthropic for reading.
 
 **OCR still fails on my photo.** Retake it flat, bright and filling the frame; or enable AI reading. Low-confidence results are shown as suggestions, never auto-filled.
+
+**Who can see my drafts?** Drafts are kept out of every shared view: the expense list, balances, suggested transfers, CSV/JSON downloads and duplicate detection. The Drafts list only shows drafts belonging to the "Viewing as" person. There are no per-person logins, though, so this is privacy within the app, not a security boundary: someone who has the app password could switch "Viewing as" or read the server's `data/` folder. Use real accounts (not built yet) if you need hard separation.
+
+**Does autosave keep my attached receipt?** No: autosave stores the form fields in your browser. Use "Save as draft" to keep attached files.
+
+**Item split: who is selected by default?** Everyone. Each item says "Shared by: Everyone, split equally". Tap a name once to give the item to only that person, then tap more names to share it.

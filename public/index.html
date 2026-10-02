@@ -83,6 +83,8 @@
           </div>
         </div>
 
+        <div id="drafts-home"></div>
+
         <div class="stats">
           <div class="stat"><span class="stat-label">You owe</span><strong class="stat-value neg" id="m-owe">–</strong></div>
           <div class="stat"><span class="stat-label">You're owed</span><strong class="stat-value pos" id="m-owed">–</strong></div>
@@ -114,6 +116,7 @@
             <a class="btn btn-ghost hide-sm" href="/api/export/expenses.csv" download><svg class="i"><use href="#i-download"/></svg> CSV</a>
           </div>
         </header>
+        <div id="drafts-exp"></div>
         <div class="filters">
           <label class="search"><svg class="i"><use href="#i-search"/></svg><input type="search" id="f-search" placeholder="Search expenses"></label>
           <div class="select"><select id="f-person" aria-label="Filter by person"><option value="">Everyone</option></select></div>
@@ -203,6 +206,7 @@
       <form id="expense-form" novalidate class="modal-form">
         <div class="modal-body">
           <!-- 1. Receipt first: this is the fastest way to fill in everything below -->
+          <div class="callout hidden" id="e-restore" role="status"></div>
           <section class="step">
             <div id="e-receipts"></div>
             <div class="callout hidden" id="e-detect" role="status"></div>
@@ -251,6 +255,7 @@
         </div>
         <div class="modal-foot">
           <button type="button" class="btn btn-ghost" data-close>Cancel</button>
+          <button type="button" class="btn btn-ghost" id="e-draft" title="Keep it private until you finish. Drafts never affect balances.">Save as draft</button>
           <button type="submit" class="btn btn-primary btn-lg" id="e-submit">Save expense</button>
         </div>
       </form>

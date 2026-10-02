@@ -49,14 +49,19 @@ export const API = {
   updatePerson: (id, b) => request(`/api/people/${id}`, { method: 'PATCH', body: b }),
   removePerson: (id) => request(`/api/people/${id}`, { method: 'DELETE' }),
   expenses: (params = {}) => request(`/api/expenses${qs(params)}`),
-  saveExpense: (id, b) => (id ? request(`/api/expenses/${id}`, { method: 'PUT', body: b }) : request('/api/expenses', { method: 'POST', body: b })),
+  // `owner` is only needed when finalizing a draft (drafts are private to their owner).
+  saveExpense: (id, b, owner) => (id ? request(`/api/expenses/${id}${owner ? `?owner=${owner}` : ''}`, { method: 'PUT', body: b }) : request('/api/expenses', { method: 'POST', body: b })),
+  drafts: (owner) => request(`/api/drafts?owner=${owner}`),
+  createDraft: (ownerId, form) => request('/api/drafts', { method: 'POST', body: { ownerId, form } }),
+  updateDraft: (id, ownerId, form) => request(`/api/drafts/${id}`, { method: 'PUT', body: { ownerId, form } }),
+  deleteDraft: (id, owner) => request(`/api/drafts/${id}?owner=${owner}`, { method: 'DELETE' }),
   deleteExpense: (id) => request(`/api/expenses/${id}`, { method: 'DELETE' }),
   balances: () => request('/api/balances'),
-  uploadReceipts(expenseId, files) {
+  uploadReceipts(expenseId, files, owner) {
     const form = new FormData();
     files.forEach((f) => form.append('receipts', f, f.name));
-    return request(`/api/expenses/${expenseId}/receipts`, { method: 'POST', form });
+    return request(`/api/expenses/${expenseId}/receipts${owner ? `?owner=${owner}` : ''}`, { method: 'POST', form });
   },
-  deleteReceipt: (expenseId, receiptId) => request(`/api/expenses/${expenseId}/receipts/${receiptId}`, { method: 'DELETE' }),
+  deleteReceipt: (expenseId, receiptId, owner) => request(`/api/expenses/${expenseId}/receipts/${receiptId}${owner ? `?owner=${owner}` : ''}`, { method: 'DELETE' }),
   receiptUrl: (file) => `/api/receipts/${file}`,
 };

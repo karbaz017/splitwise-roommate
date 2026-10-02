@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.3.0]
+### Added
+- Tax, tip, service fee and discount lines are individual, editable charges (type, label, amount, split rule), with tip-% shortcuts and an explicit "not accounted for" line
+- Item quantity (quantity × unit price = line total); each item shows who shares it
+- Receipt parsing extracts every tax/tip/fee/discount line and quantities (local OCR and AI)
+- Private drafts ("Save as draft", Finish, delete) excluded from balances, lists, exports and duplicate checks; form autosave with restore
+### Changed
+- Per-person breakdown in the item splitter shows items and each charge
+
 ## [2.2.0]
 ### Changed
 - UI redesign: modern light/dark design system, hero summary, avatars, day-grouped expense list, segmented split control, sticky save bar, mobile bottom navigation and bottom-sheet dialogs

@@ -23,7 +23,8 @@ export class ReceiptPicker {
     this.render();
   }
 
-  reset(existing = [], expenseId = null) {
+  reset(existing = [], expenseId = null, owner = null) {
+    this.owner = owner; // set for draft receipts (drafts are owner-only)
     this.pending.forEach((p) => p.url && URL.revokeObjectURL(p.url));
     this.pending = [];
     this.existing = existing;
@@ -138,7 +139,7 @@ export class ReceiptPicker {
       b.onclick = async () => {
         if (!confirm('Remove this receipt permanently?')) return;
         try {
-          await API.deleteReceipt(this.expenseId, b.dataset.removeExisting);
+          await API.deleteReceipt(this.expenseId, b.dataset.removeExisting, this.owner);
           this.existing = this.existing.filter((r) => r.id !== b.dataset.removeExisting);
           this.render();
           this.onRemoveExisting?.();

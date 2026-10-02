@@ -17,7 +17,8 @@ const state = {
   total: 0,
   expenses: [],
   filters: { search: '', person: '', category: '', month: '' },
-  editing: null, // expense being edited (or null)
+  editing: null, // expense (or draft) being edited, or null for a new one
+  drafts: [], // the viewer's own drafts
   settleEditing: null,
   rows: [], // split-editor rows for the expense modal
   items: [], // item rows: {name, qty, unit, total, personIds}
@@ -95,7 +96,7 @@ async function renderDashboard() {
       <li>Pick who you are in the top-right “Viewing as” menu.</li>
       <li>Tap <strong>Scan receipt</strong> or <strong>Add expense</strong>. No account or Splitwise needed.</li></ol>`;
   }
-  const [bal, recent, all] = await Promise.all([API.balances(), API.expenses({ limit: 6 }), API.expenses({ limit: 200 })]);
+  const [bal, recent, all] = await Promise.all([API.balances(), API.expenses({ limit: 6 }), API.expenses({ limit: 200 }), renderDrafts()]);
   const mine = bal.net[state.me] || 0;
   const owe = bal.transfers.filter((t) => t.from === state.me).reduce((a, t) => a + t.cents, 0);
   const owed = bal.transfers.filter((t) => t.to === state.me).reduce((a, t) => a + t.cents, 0);
@@ -162,6 +163,7 @@ function monthRange(m) {
 
 async function renderExpenses() {
   const f = state.filters;
+  renderDrafts();
   const data = await API.expenses({ search: f.search, person: f.person, category: f.category === 'Settlement' ? '' : f.category, type: f.category === 'Settlement' ? 'settlement' : '', ...monthRange(f.month), limit: PAGE, offset: state.page * PAGE });
   state.expenses = data.expenses;
   state.total = data.total;
@@ -313,6 +315,9 @@ function openExpense(expense = null) {
   });
   renderRows();
   expensePicker.reset(expense?.receipts || [], expense?.id || null);
+  $('e-restore').classList.add('hidden');
+  $('e-draft').textContent = 'Save as draft';
+  if (!expense) offerRestore();
   detectRun++;
   $('e-detect').classList.add('hidden');
   $('e-detect').textContent = '';
@@ -361,6 +366,7 @@ function readRows() {
 
 // Client-side preview only; the server recomputes and validates everything.
 function updateValidation() {
+  saveAutosave();
   if ($('e-method').value === 'items') return updateItemsSummary();
   readRows();
   const method = $('e-method').value;
@@ -435,8 +441,9 @@ async function submitExpense(e) {
   btn.textContent = 'Saving…';
   try {
     const payload = buildExpensePayload();
-    const { expense } = await API.saveExpense(state.editing?.id, payload);
-    if (!state.editing && $('e-repeat').checked) {
+    const finishing = !!state.editing?.draft;
+    const { expense } = await API.saveExpense(state.editing?.id, payload, finishing ? state.editing.ownerId : undefined);
+    if ((!state.editing || finishing) && $('e-repeat').checked) {
       try {
         const { date, ...template } = payload;
         const d = new Date(`${date}T00:00:00Z`);
@@ -451,16 +458,132 @@ async function submitExpense(e) {
         toast(`Saved, but receipts failed to upload: ${upErr.message}. Edit the entry to retry.`, 'warning');
       }
     }
+    clearAutosave();
     closeModals();
-    toast(state.editing ? 'Expense updated.' : 'Expense added.');
+    toast(state.editing && !finishing ? 'Expense updated.' : 'Expense added.');
     await refresh();
   } catch (ex) {
     err.textContent = ex.message;
     err.classList.remove('hidden');
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Save Expense';
+    btn.textContent = 'Save expense';
   }
+}
+
+// ---------------------------------------------------------------- drafts & autosave
+// A "form snapshot" is the raw, unvalidated state of the expense dialog. Autosave keeps it in
+// this browser; "Save as draft" stores the same shape on the server (private to its owner).
+function collectForm() {
+  readRows();
+  return {
+    description: $('e-desc').value, amount: $('e-amount').value, date: $('e-date').value, category: $('e-category').value, notes: $('e-notes').value,
+    splitMethod: $('e-method').value, multiPayer: $('e-multi-payer').checked, paidById: $('e-paid-by').value,
+    rows: state.rows.map((r) => ({ personId: r.personId, included: r.included, value: r.value, paid: r.paid })),
+    items: state.items.map((it) => ({ name: it.name, quantity: it.qty, unit: it.unit, amount: it.total, personIds: it.personIds })),
+    charges: state.charges.map((c) => ({ kind: c.kind, label: c.label, amount: c.amount, mode: c.mode })),
+  };
+}
+
+function formIsDirty(f) {
+  return !!(f.description.trim() || f.amount || f.notes.trim() || f.items.some((i) => i.name.trim() || i.amount) || f.charges.some((c) => c.amount));
+}
+
+function applyForm(f) {
+  $('e-desc').value = f.description || '';
+  $('e-amount').value = f.amount || '';
+  if (f.date) $('e-date').value = f.date;
+  if (f.category && state.settings.categories.includes(f.category)) $('e-category').value = f.category;
+  $('e-notes').value = f.notes || '';
+  $('e-method').value = f.splitMethod || 'equal';
+  $('e-multi-payer').checked = !!f.multiPayer;
+  if (f.paidById && (state.pool || []).some((p) => p.id === f.paidById)) $('e-paid-by').value = f.paidById;
+  (f.rows || []).forEach((sr) => {
+    const r = state.rows.find((x) => x.personId === sr.personId);
+    if (r) { r.included = !!sr.included; r.value = sr.value ?? ''; r.paid = sr.paid ?? ''; }
+  });
+  state.items = (f.items || []).map((it) => ({ name: it.name || '', qty: String(it.quantity || 1), unit: it.unit || '', total: it.amount || '', personIds: it.personIds || [] }));
+  state.charges = (f.charges || []).map((c) => ({ kind: c.kind, label: c.label, amount: c.amount, mode: c.mode }));
+  state.totalAuto = !f.amount;
+  renderRows();
+}
+
+const autosaveKey = () => `ledger_autosave_${state.me}`;
+function clearAutosave() { try { localStorage.removeItem(autosaveKey()); } catch { /* ignore */ } }
+const saveAutosave = debounce(() => {
+  if ($('expense-modal').classList.contains('hidden') || state.editing) return;
+  try {
+    const form = collectForm();
+    if (formIsDirty(form)) localStorage.setItem(autosaveKey(), JSON.stringify({ at: Date.now(), form }));
+    else localStorage.removeItem(autosaveKey());
+  } catch { /* storage unavailable: autosave is best effort */ }
+}, 500);
+
+function offerRestore() {
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(autosaveKey()) || 'null'); } catch { saved = null; }
+  if (!saved?.form || !formIsDirty(saved.form)) return;
+  const box = $('e-restore');
+  const when = new Date(saved.at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const what = [saved.form.description, saved.form.amount && money(Math.round(parseFloat(saved.form.amount) * 100) || 0)].filter(Boolean).join(' · ') || 'an unfinished expense';
+  box.innerHTML = `<span>You have an unsaved expense from ${esc(when)}: <strong>${esc(what)}</strong>. <small>Attached files aren’t kept by autosave; use “Save as draft” for that.</small></span>
+    <span class="alts"><button type="button" class="btn btn-primary btn-sm" id="e-restore-yes">Restore</button><button type="button" class="btn btn-ghost btn-sm" id="e-restore-no">Discard</button></span>`;
+  box.classList.remove('hidden');
+  $('e-restore-yes').onclick = () => { applyForm(saved.form); box.classList.add('hidden'); };
+  $('e-restore-no').onclick = () => { clearAutosave(); box.classList.add('hidden'); };
+}
+
+async function saveDraft() {
+  const btn = $('e-draft');
+  const err = $('e-error');
+  err.classList.add('hidden');
+  btn.disabled = true;
+  try {
+    const form = collectForm();
+    const existing = state.editing?.draft ? state.editing : null;
+    const owner = existing?.ownerId || state.me;
+    const { draft } = existing ? await API.updateDraft(existing.id, owner, form) : await API.createDraft(owner, form);
+    const files = expensePicker.files;
+    if (files.length) {
+      try { await API.uploadReceipts(draft.id, files, owner); } catch (upErr) { toast(`Draft saved, but receipts failed to upload: ${upErr.message}`, 'warning'); }
+    }
+    clearAutosave();
+    closeModals();
+    toast('Draft saved. Only you can see it, and it doesn’t affect balances until you finish it.');
+    await refresh();
+  } catch (ex) {
+    err.textContent = ex.message;
+    err.classList.remove('hidden');
+  } finally { btn.disabled = false; }
+}
+
+function openDraft(id) {
+  const d = state.drafts.find((x) => x.id === id);
+  if (!d) return;
+  openExpense();
+  $('e-restore').classList.add('hidden');
+  applyForm(d.draftForm);
+  state.editing = d;
+  $('expense-modal-title').textContent = 'Finish draft';
+  $('e-draft').textContent = 'Save draft';
+  expensePicker.reset(d.receipts || [], d.id, d.ownerId);
+  expensePicker.onRemoveExisting = () => refresh();
+}
+
+async function renderDrafts() {
+  const boxes = ['drafts-home', 'drafts-exp'].map($);
+  state.drafts = [];
+  if (state.me) { try { state.drafts = (await API.drafts(state.me)).drafts; } catch { state.drafts = []; } }
+  const html = state.drafts.length ? `<div class="card drafts">
+      <h3 class="card-title">${ic('pencil')} Your drafts <span class="pill">${state.drafts.length}</span> <small>🔒 only you can see these · not counted in balances</small></h3>
+      ${state.drafts.map((d) => `<div class="line">
+        <span class="exp-icon">${categoryEmoji(d.category)}</span>
+        <div class="grow"><strong>${esc(d.description)}</strong>${d.receipts?.length ? ` <span class="clip">${ic('clip', 'sm')}${d.receipts.length}</span>` : ''}
+          <div class="sub">${d.amountCents ? `${money(d.amountCents)} · ` : ''}${esc(formatDate(d.date))}${d.draftForm?.splitMethod === 'items' ? ` · ${d.draftForm.items.length} items` : ''}</div></div>
+        <button class="btn btn-primary btn-sm" data-draft-open="${esc(d.id)}">Finish</button>
+        <button class="icon-btn" data-draft-del="${esc(d.id)}" aria-label="Delete draft" title="Delete draft">${ic('trash', 'sm')}</button>
+      </div>`).join('')}</div>` : '';
+  boxes.forEach((b) => { if (b) b.innerHTML = html; });
 }
 
 // ---------------------------------------------------------------- item-by-item editor
@@ -516,7 +639,7 @@ function renderItems() {
       <div class="select"><select data-f="kind" aria-label="Charge type">${Object.entries(KINDS).map(([k, v]) => `<option value="${k}" ${c.kind === k ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <input type="text" data-f="label" value="${esc(c.label)}" maxlength="60" placeholder="Label" aria-label="Charge label">
       <input type="number" data-f="amount" value="${esc(c.amount)}" step="0.01" min="0" inputmode="decimal" placeholder="0.00" aria-label="Charge amount">
-      <div class="select"><select data-f="mode" aria-label="How to split this charge"><option value="proportional" ${c.mode === 'proportional' ? 'selected' : ''}>By what each person ordered</option><option value="equal" ${c.mode === 'equal' ? 'selected' : ''}>Equally</option></select></div>
+      <div class="select"><select data-f="mode" aria-label="How to split this charge"><option value="proportional" ${c.mode === 'proportional' ? 'selected' : ''}>By items ordered</option><option value="equal" ${c.mode === 'equal' ? 'selected' : ''}>Equally</option></select></div>
       <button type="button" class="receipt-remove" data-del-charge aria-label="Remove charge">&times;</button>
       ${c.kind === 'tip' ? `<div class="tip-pct">Tip as % of items: ${[10, 15, 18, 20].map((n) => `<button type="button" class="chip" data-tip-pct="${n}">${n}%</button>`).join('')}</div>` : ''}
     </div>`).join('') || '<p class="muted">No tax, tip or fees added.</p>'}</div>
@@ -533,6 +656,7 @@ function renderItems() {
 function updateItemsSummary() {
   const box = $('e-items-summary');
   if (!box) return;
+  saveAutosave();
   const itemsTotal = itemsCents();
   const charges = signedCharges();
   const chargesTotal = chargesCents();
@@ -770,6 +894,10 @@ function bind() {
     if (d.goto) { e.preventDefault(); switchTab(d.goto); }
     else if (d.action === 'add-expense') openExpense();
     else if (d.action === 'scan') { openExpense(); expensePicker.browse(); }
+    else if (d.draftOpen) openDraft(d.draftOpen);
+    else if (d.draftDel) {
+      if (confirm('Delete this draft and its attached receipts?')) { try { await API.deleteDraft(d.draftDel, state.me); toast('Draft deleted.'); await renderDrafts(); } catch (err) { toast(err.message, 'error'); } }
+    }
     else if (t.classList.contains('nav-item')) switchTab(d.tab);
     else if (d.method) { $('e-method').value = d.method; renderRows(); }
     else if (d.action === 'settle') openSettle();
@@ -803,6 +931,10 @@ function bind() {
   $('me-select').onchange = (e) => { state.me = e.target.value; localStorage.setItem('ledger_me', state.me); renderTab(); };
 
   $('expense-form').onsubmit = submitExpense;
+  $('e-draft').onclick = saveDraft;
+  $('expense-form').addEventListener('input', saveAutosave);
+  $('expense-form').addEventListener('change', saveAutosave);
+  $('expense-form').addEventListener('click', (e) => { if (e.target.closest('[data-chip],[data-all],[data-del-item],[data-add-charge],[data-del-charge],[data-method]')) saveAutosave(); });
   $('settle-form').onsubmit = submitSettle;
   $('e-method').onchange = renderRows;
   bindItems();
