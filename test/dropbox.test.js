@@ -23,11 +23,11 @@ function fakeDropbox() {
       if (p.get('grant_type') === 'authorization_code') {
         const ok = crypto.createHash('sha256').update(p.get('code_verifier') || '').digest('base64url') === st.challenge && p.get('code') === 'GOOD-CODE';
         if (!ok) return json({ error: 'invalid_grant', error_description: 'bad code or verifier' }, 400);
-        st.accessToken = `AT${++st.tokenSeq}`;
+        st.accessToken = `sl.fake-access-token-${++st.tokenSeq}`;
         return json({ access_token: st.accessToken, refresh_token: 'RT-1', expires_in: 14400 });
       }
       if (p.get('refresh_token') !== 'RT-1' || !p.get('client_id')) return json({ error: 'invalid_grant' }, 400);
-      st.accessToken = `AT${++st.tokenSeq}`;
+      st.accessToken = `sl.fake-access-token-${++st.tokenSeq}`;
       return json({ access_token: st.accessToken, expires_in: 14400 });
     }
     if (h.authorization !== `Bearer ${st.accessToken}`) return json({ error_summary: 'expired_access_token/' }, 401);
@@ -172,4 +172,18 @@ test('Connect Dropbox is refused when not configured or when env sync is already
   assert.equal(r.status, 400);
   assert.match(r.body.message, /environment/);
   envSync.close();
+});
+
+test('diagnostics: unusable token and 400 errors are reported with the real reason', async () => {
+  const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { 'content-type': 'application/json' } });
+  // refresh answers 200 but without a usable access token
+  const noToken = new DropboxRemote({ appKey: 'K', refreshToken: 'R' }, async () => json({ token_type: 'bearer' }), { retryDelayMs: 0 });
+  await assert.rejects(() => noToken.get('x'), /did not return a usable access token \(response had: token_type\)/);
+  // Dropbox's wrapper 400: the full user_message is surfaced, with a hint for auth problems
+  const r400 = (text) => new DropboxRemote({ appKey: 'K', refreshToken: 'R' }, async (url) => (String(url).includes('oauth2')
+    ? json({ access_token: 'sl.0123456789abcdef', expires_in: 3600 })
+    : json({ error: { '.tag': 'other' }, error_summary: 'other/...', user_message: { locale: 'en', text } }, 400)), { retryDelayMs: 0 });
+  await assert.rejects(() => r400('Error in call to API function "files/download": Invalid authorization value in HTTP header/URL parameter').get('x'), /Disconnect and connect Dropbox again.*Invalid authorization value/);
+  await assert.rejects(() => r400("Error in call to API function \"files/download\": Your app (ID: 1) is not permitted to access this endpoint because it does not have the required scope 'files.content.read'. The owner...").get('x'), /missing the permission "files\.content\.read".*Disconnect Dropbox and Connect Dropbox again/);
+  await assert.rejects(() => r400('Error in call to API function "files/download": something else entirely').get('x'), /failed \(400\): Error in call to API function "files\/download": something else entirely/);
 });

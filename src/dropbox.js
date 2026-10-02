@@ -59,6 +59,9 @@ export class DropboxRemote {
   async accessToken(force = false) {
     if (!force && this.token && Date.now() < this.tokenExpiry - 60_000) return this.token;
     const t = await tokenRequest({ grant_type: 'refresh_token', refresh_token: this.refreshToken, client_id: this.appKey }, this.fetch);
+    if (typeof t.access_token !== 'string' || t.access_token.length < 10) {
+      throw new Error(`Dropbox did not return a usable access token (response had: ${Object.keys(t).join(', ') || 'nothing'}). Disconnect and connect Dropbox again.`);
+    }
     this.token = t.access_token;
     this.tokenExpiry = Date.now() + (t.expires_in || 14_400) * 1000;
     return this.token;
@@ -86,19 +89,31 @@ export class DropboxRemote {
     }
   }
 
+  // Turn a Dropbox error response into a readable message (never includes tokens).
   async fail(res, what) {
-    const body = await res.text().catch(() => '');
+    const raw = await res.text().catch(() => '');
+    let detail = raw.slice(0, 400);
+    try { const j = JSON.parse(raw); detail = j.user_message?.text || j.error_summary || detail; } catch { /* not JSON */ }
     if (res.status === 401) throw new Error('Dropbox rejected the saved sign-in. Disconnect and connect Dropbox again.');
-    if (res.status === 403) throw new Error('Dropbox denied access. Make sure the app has the files.content.read and files.content.write permissions.');
+    if (res.status === 403) throw new Error('Dropbox denied access. Make sure the app has the files.content.read and files.content.write permissions, then disconnect and connect again.');
     if (res.status === 507) throw new Error('Your Dropbox is full.');
-    throw new Error(`Dropbox ${what} failed (${res.status}) ${body.slice(0, 120)}`);
+    const missing = detail.match(/required scope '([^']+)'/);
+    if (missing) {
+      throw new Error(`Dropbox sign-in is missing the permission "${missing[1]}". On your Dropbox app's Permissions tab tick files.content.read and files.content.write and press Submit, then in this app press Disconnect Dropbox and Connect Dropbox again (permissions only apply to new sign-ins).`);
+    }
+    if (/Invalid authorization value/i.test(detail)) throw new Error(`Dropbox did not accept the access token (${what}). Disconnect and connect Dropbox again. Details: ${detail}`);
+    throw new Error(`Dropbox ${what} failed (${res.status}): ${detail}`);
   }
 
   async get(key) {
     const arg = JSON.stringify({ path: this.path(key) });
     const res = await this.call(`${CONTENT}/2/files/download`, (t) => ({ method: 'POST', headers: { Authorization: `Bearer ${t}`, 'Dropbox-API-Arg': arg } }));
     if (res.ok) return Buffer.from(await res.arrayBuffer());
-    if (res.status === 409) { const body = await res.text(); if (/not_found/.test(body)) return null; throw new Error(`Dropbox download failed: ${body.slice(0, 120)}`); }
+    if (res.status === 409) {
+      const body = await res.text();
+      if (/not_found/.test(body)) return null;
+      throw new Error(`Dropbox download failed (409): ${body.slice(0, 300)}`);
+    }
     return this.fail(res, 'download');
   }
 
