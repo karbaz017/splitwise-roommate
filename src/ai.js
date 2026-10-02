@@ -30,14 +30,12 @@ Return ONLY a JSON object, no prose and no code fences, with exactly these keys:
  "date": "YYYY-MM-DD"|null,
  "currency": "3-letter ISO code"|null,
  "category": one of ${JSON.stringify(categories)} or null,
- "items": [{"name": string, "amount": number}],
+ "items": [{"name": string, "quantity": number, "amount": number}],
  "subtotal": number|null,
- "tax": number|null,
- "tip": number|null,
- "discount": number|null,
+ "charges": [{"kind": "tax"|"tip"|"fee"|"discount", "label": string, "amount": number}],
  "total": number|null
 }
-Rules: amounts are plain numbers in major units (12.50). "items" are purchased line items with their final line price (quantity x unit price already multiplied); do not include tax, tip, totals, payments or change as items. "discount" is the total positive amount taken off (coupons, promotions). "total" is the final amount charged. Use null for anything you cannot read; never guess or invent values. If the date is ambiguous (e.g. 03/04/2026) prefer the format that matches the receipt's country.`;
+Rules: amounts are plain numbers in major units (12.50). "items" are purchased line items: "quantity" is how many (1 if not shown) and "amount" is the final line price (quantity x unit price already multiplied); do not include tax, tip, totals, payments or change as items. "charges" lists every tax line separately (e.g. CGST and SGST as two entries), tip/gratuity, service/delivery/packaging fees, and discounts/coupons (as positive amounts with kind "discount"), each with the label printed on the receipt. "total" is the final amount charged. Use null for anything you cannot read; never guess or invent values. If the date is ambiguous (e.g. 03/04/2026) prefer the format that matches the receipt's country.`;
 }
 
 export function parseModelJson(raw) {
@@ -54,23 +52,34 @@ export function parseModelJson(raw) {
 
 export function normalizeAiResult(j, categories = []) {
   const items = (Array.isArray(j.items) ? j.items : [])
-    .map((i) => ({ name: text(i?.name, 100) || 'Item', amount: num(i?.amount) }))
+    .map((i) => ({ name: text(i?.name, 100) || 'Item', quantity: Math.min(Math.max(Number(i?.quantity) || 1, 1), 9999), amount: num(i?.amount) }))
     .filter((i) => i.amount && i.amount > 0)
     .slice(0, 200);
   const date = typeof j.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(j.date) && !Number.isNaN(Date.parse(j.date)) ? j.date : null;
   const total = num(j.total);
   const subtotal = num(j.subtotal);
-  const tax = num(j.tax);
-  const tip = num(j.tip);
-  const discount = num(j.discount);
+  const LABEL = { tax: 'Tax', tip: 'Tip', fee: 'Service charge', discount: 'Discount' };
+  let charges = (Array.isArray(j.charges) ? j.charges : [])
+    .map((c) => ({ kind: LABEL[c?.kind] ? c.kind : null, label: text(c?.label, 60), amount: num(c?.amount) }))
+    .filter((c) => c.kind && c.amount && c.amount > 0)
+    .map((c) => ({ kind: c.kind, label: c.label || LABEL[c.kind], amount: c.amount, mode: c.kind === 'tip' ? 'equal' : 'proportional' }))
+    .slice(0, 30);
+  if (!charges.length) { // older / simpler model output: scalar fields
+    for (const [kind, key] of [['tax', 'tax'], ['tip', 'tip'], ['discount', 'discount']]) {
+      const v = num(j[key]);
+      if (v && v > 0) charges.push({ kind, label: LABEL[kind], amount: v, mode: kind === 'tip' ? 'equal' : 'proportional' });
+    }
+  }
+  const sum = (k) => { const v = charges.filter((c) => c.kind === k).reduce((a, c) => a + c.amount, 0); return v ? Math.round(v * 100) / 100 : null; };
+  const [tax, tip, fee, discount] = ['tax', 'tip', 'fee', 'discount'].map(sum);
   const itemsSum = items.reduce((a, i) => a + i.amount, 0);
+  const net = charges.reduce((a, c) => a + (c.kind === 'discount' ? -c.amount : c.amount), 0);
   const near = (a, b) => Math.abs(a - b) <= 0.02;
-  const reconciled = !!total && ((items.length && near(itemsSum + (tax || 0) + (tip || 0) - (discount || 0), total))
-    || (subtotal != null && near(subtotal + (tax || 0) + (tip || 0), total)));
+  const reconciled = !!total && ((items.length && near(itemsSum + net, total)) || (subtotal != null && near(subtotal + net, total)));
   const cat = categories.includes(j.category) ? j.category : null;
   const currency = typeof j.currency === 'string' && /^[A-Za-z]{3}$/.test(j.currency) ? j.currency.toUpperCase() : null;
   return {
-    total, subtotal, tax, tip, discount, date, currency, category: cat,
+    total, subtotal, tax, tip, fee, discount, charges, date, currency, category: cat,
     merchant: text(j.merchant, 60), items,
     totalCandidates: total ? [total] : [], reconciled,
     confidence: !total ? 0.3 : reconciled ? 0.95 : 0.75,

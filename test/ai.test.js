@@ -17,6 +17,11 @@ test('parseModelJson tolerates fences and prose; normalize validates', () => {
   assert.equal(r.items.length, 2);
   assert.equal(r.currency, 'USD');
   assert.equal(r.reconciled, true);
+  assert.deepEqual(r.charges.map((c) => [c.kind, c.amount]), [['tax', 0.53]]); // scalar fallback
+  const c = normalizeAiResult({ total: 12, items: [{ name: 'A', quantity: 2, amount: 10 }], charges: [{ kind: 'tax', label: 'CGST', amount: 1 }, { kind: 'tax', label: 'SGST', amount: 1 }, { kind: 'bogus', amount: 5 }, { kind: 'discount', label: 'Coupon', amount: 0 }] }, []);
+  assert.deepEqual(c.charges.map((x) => x.label), ['CGST', 'SGST']);
+  assert.equal(c.items[0].quantity, 2);
+  assert.equal(c.reconciled, true);
   assert.equal(normalizeAiResult({ total: 5, date: 'tomorrow', category: 'Bogus' }, ['Groceries']).date, null);
 });
 

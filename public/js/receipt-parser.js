@@ -120,23 +120,31 @@ const NON_ITEM = /\b(sub\s*-?\s*total|total|tax|vat|gst|hst|pst|cgst|sgst|igst|t
 const DISCOUNT = /\b(coupon|discount|promo(tion)?|offer|markdown|member\s*savings|deal)\b/i;
 const ITEM_RE = /^(.*?[A-Za-z].*?)[\s.:_-]*(-?\s*[$€£₹¥]?\s?(?:\d{1,3}(?:[.,]\d{3})+|\d+)[.,]\d{2})\s*(-|[A-Za-z]{1,2})?$/;
 
-function cleanItemName(raw) {
-  let n = raw
-    .replace(new RegExp(`\\b\\d+\\s*[@xX]\\s*${CUR}?\\s?\\d+[.,]\\d{2}\\b`, 'g'), ' ') // "2 @ 1.99"
-    .replace(/^\s*\d+\s*[xX]\s+/, '') // "2 x Milk"
+const titleCase = (n) => (n.length > 3 && n === n.toUpperCase() ? n.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase()) : n);
+
+// Returns the cleaned item name and the quantity printed on the line (default 1).
+function parseItemName(raw) {
+  let quantity = 1;
+  let n = raw;
+  const at = n.match(new RegExp(`(\\d+(?:\\.\\d+)?)\\s*[@xX]\\s*${CUR}?\\s?\\d+[.,]\\d{2}\\b`)); // "2 @ 3.50"
+  const lead = n.match(/^\s*(\d{1,2}(?:\.\d+)?)\s*[xX]\s+/); // "2 x Milk"
+  const plain = n.match(/^\s*(\d{1,2})\s+(?=[A-Za-z]{2})/); // "3 Beer"
+  if (at) { quantity = Number(at[1]); n = n.replace(at[0], ' '); }
+  else if (lead) { quantity = Number(lead[1]); n = n.replace(lead[0], ''); }
+  else if (plain) { quantity = Number(plain[1]); n = n.replace(plain[0], ''); }
+  n = n
     .replace(/^\s*\d{4,}\s+/, '') // SKU / PLU
     .replace(/\s+\d{4,}\s*$/, '')
     .replace(/\s+[A-Z]$/, '') // tax-code flag column (F, T, A)
     .replace(/[^\w &'.,%/+()-]/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .trim();
-  if (n.length > 3 && n === n.toUpperCase()) n = n.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
-  return n.slice(0, 100);
+  return { name: titleCase(n).slice(0, 100), quantity: quantity > 0 && quantity < 1000 ? quantity : 1 };
 }
 
 export function findItems(lines) {
   const items = [];
-  let discount = 0;
+  const discounts = [];
   for (const line of lines) {
     const m = line.match(ITEM_RE);
     if (!m) continue;
@@ -145,13 +153,55 @@ export function findItems(lines) {
     const price = parseAmount(m[2].replace(/-/g, ''));
     if (!price || price <= 0) continue;
     const negative = /-\s*[$€£₹¥]?\s?\d/.test(m[2]) || m[3] === '-';
-    if (DISCOUNT.test(m[1]) || negative) { if (!/\b(total|you\s*saved|tax|tender|change)\b/i.test(m[1])) discount += price; continue; }
+    if (DISCOUNT.test(m[1]) || negative) {
+      if (!/\b(total|you\s*saved|tax|tender|change)\b/i.test(m[1])) {
+        discounts.push({ name: titleCase(m[1].replace(/[^\w &'.,%/+()-]/g, ' ').replace(/\s{2,}/g, ' ').trim()).slice(0, 60) || 'Discount', amount: price });
+      }
+      continue;
+    }
     if (NON_ITEM.test(m[1])) continue;
-    const name = cleanItemName(m[1]);
+    const { name, quantity } = parseItemName(m[1]);
     if (name.replace(/[^A-Za-z]/g, '').length < 2) continue;
-    items.push({ name, amount: price });
+    items.push({ name, quantity, amount: price });
   }
-  return { items, discount: Math.round(discount * 100) / 100 };
+  const discount = Math.round(discounts.reduce((a, d) => a + d.amount, 0) * 100) / 100;
+  return { items, discounts, discount };
+}
+
+// ---------------------------------------------------------------- charges (tax, tip, fees, discounts)
+const TAX_RE = /\b(sales\s*tax|tax|vat|gst|hst|pst|cgst|sgst|igst)\b/i;
+const TAX_EXCL = /(sub\s*-?\s*total|total\s*(amount|due|payable|bill)|before\s*tax|tax\s*(id|no|number|invoice|exempt)|gstin|vat\s*(id|no|reg)|inclusive|incl\b|taxable)/i;
+const TAX_AGG = /(total\s*tax|tax\s*total)/i;
+const TIP_RE = /\b(tip|gratuity)\b/i;
+const FEE_RE = /\b(service\s*(charge|fee)|surcharge|delivery(\s*(fee|charge))?|packaging|convenience\s*fee|booking\s*fee|platform\s*fee|cover\s*charge)\b/i;
+const SUGGESTION = /(suggest|recommend|guide|if\s+you|option|calculator)/i;
+
+const labelOf = (line, fallback) => {
+  const l = line.replace(/[$€£₹¥]?\s?\d[\d.,]*\s*%?/g, ' ').replace(/[:*_=-]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  return l.length >= 2 ? titleCase(l).slice(0, 60) : fallback;
+};
+
+/** Individual tax / tip / fee / discount lines in receipt order. */
+export function findCharges(lines, discounts = []) {
+  const out = [];
+  lines.forEach((line, i) => {
+    if (SUGGESTION.test(line)) return;
+    let kind = null;
+    if (TIP_RE.test(line)) kind = 'tip';
+    else if (FEE_RE.test(line)) kind = 'fee';
+    else if (TAX_RE.test(line) && !TAX_EXCL.test(line)) kind = 'tax';
+    if (!kind) return;
+    let nums = numbersIn(line).filter((n) => n.hasDecimals);
+    if (!nums.length && lines[i + 1] && !/[A-Za-z]{3,}/.test(lines[i + 1])) nums = numbersIn(lines[i + 1]).filter((n) => n.hasDecimals);
+    if (!nums.length) return;
+    const fallback = { tax: 'Tax', tip: 'Tip', fee: 'Service charge' }[kind];
+    out.push({ kind, label: labelOf(line, fallback), amount: nums[nums.length - 1].v, agg: kind === 'tax' && TAX_AGG.test(line), order: i, mode: kind === 'tip' ? 'equal' : 'proportional' });
+  });
+  // "Total tax" next to its components would double count: keep the components.
+  const parts = out.filter((c) => c.kind === 'tax' && !c.agg);
+  const charges = out.filter((c) => !(c.agg && parts.length >= 2));
+  discounts.forEach((d) => charges.push({ kind: 'discount', label: d.name, amount: d.amount, order: 1e6, mode: 'proportional' }));
+  return charges.sort((a, b) => a.order - b.order).map(({ order, agg, ...c }) => c);
 }
 
 // ---------------------------------------------------------------- dates
@@ -233,29 +283,33 @@ const round2 = (n) => Math.round(n * 100) / 100;
 
 export function parseReceiptText(text, opts = {}) {
   const clean = normalizeOcrText(text);
-  const empty = { total: null, subtotal: null, tax: null, tip: null, discount: null, date: null, merchant: null, category: null, currency: null, items: [], totalCandidates: [], reconciled: false, confidence: 0 };
+  const empty = { total: null, subtotal: null, tax: null, tip: null, fee: null, discount: null, charges: [], date: null, merchant: null, category: null, currency: null, items: [], totalCandidates: [], reconciled: false, confidence: 0 };
   if (clean.replace(/\s/g, '').length < 8) return empty;
   const lines = splitLines(clean);
 
   const subtotal = labelled(lines, /\bsub\s*-?\s*total\b|\bmerchandise\b|\bitems?\s*total\b/i);
-  const tax = labelled(lines, /\b(tax|vat|gst|hst|pst|cgst|sgst|igst)\b/i, { excludeRe: /(subtotal|total\s*(amount|due|payable|bill))\b|before\s*tax|tax\s*(id|no|number|invoice)|inclusive|incl\b/i, sum: true });
-  const tip = labelled(lines, /\b(tip|gratuity|service\s*(charge|fee))\b/i);
-  const { items, discount } = findItems(lines);
-  const itemsSum = round2(items.reduce((a, i) => a + i.amount, 0));
+  const { items, discounts, discount } = findItems(lines);
+  const charges = findCharges(lines, discounts);
+  const sumOf = (kind) => { const v = charges.filter((c) => c.kind === kind).reduce((a, c) => a + c.amount, 0); return v ? Math.round(v * 100) / 100 : null; };
+  const tax = sumOf('tax');
+  const tip = sumOf('tip');
+  const fee = sumOf('fee');
+  const itemsSum = round2(items.reduce((a, i) => a + i.amount * 1, 0));
 
   // Candidate totals, boosted when they reconcile with subtotal/tax/tip or the item list.
   const cands = totalCandidates(lines, { fallback: false });
   const base = [subtotal, items.length ? itemsSum : null].filter((x) => x != null);
   const expected = [];
   base.forEach((b) => {
-    [0, 1].forEach((useTax) => [0, 1].forEach((useTip) => {
-      expected.push(round2(b + (useTax ? tax || 0 : 0) + (useTip ? tip || 0 : 0) - (discount || 0)));
-      expected.push(round2(b + (useTax ? tax || 0 : 0) + (useTip ? tip || 0 : 0)));
-    }));
+    for (let mask = 0; mask < 8; mask++) {
+      const add = (mask & 1 ? tax || 0 : 0) + (mask & 2 ? tip || 0 : 0) + (mask & 4 ? fee || 0 : 0);
+      expected.push(round2(b + add - (discount || 0)));
+      expected.push(round2(b + add));
+    }
   });
   cands.forEach((c) => { if (expected.some((e) => near(e, c.v))) { c.score += 3; c.reconciled = true; } });
   // Nothing labelled as total but subtotal + tax is known: compute it (low confidence).
-  if (!cands.length && subtotal != null && tax != null) cands.push({ v: round2(subtotal + tax + (tip || 0)), score: 0.1, computed: true });
+  if (!cands.length && subtotal != null && tax != null) cands.push({ v: round2(subtotal + tax + (tip || 0) + (fee || 0)), score: 0.1, computed: true });
   if (!cands.length) cands.push(...totalCandidates(lines));
   cands.sort((a, b) => b.score - a.score || b.v - a.v);
   const uniq = [];
@@ -270,7 +324,7 @@ export function parseReceiptText(text, opts = {}) {
   const currency = findCurrency(clean);
   const confidence = Math.min(top?.fallback ? 0.35 : top?.computed ? 0.5 : 1, (total ? 0.4 : 0) + (reconciled ? 0.25 : 0) + (date ? 0.15 : 0) + (merchant ? 0.1 : 0) + (items.length ? 0.1 : 0));
   return {
-    total, subtotal, tax, tip, discount: discount || null, date, merchant, category, currency, items,
+    total, subtotal, tax, tip, fee, discount: discount || null, charges, date, merchant, category, currency, items,
     totalCandidates: uniq.slice(0, 4).map((c) => c.v), reconciled, confidence,
   };
 }

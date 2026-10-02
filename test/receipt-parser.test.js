@@ -160,3 +160,35 @@ test('dates tolerate OCR spacing and currency detection is explicit only', () =>
   assert.equal(findCurrency('Total 5.00 EUR'), 'EUR');
   assert.equal(findCurrency('Total €5.00'), 'EUR');
 });
+
+import { findCharges } from '../public/js/receipt-parser.js';
+
+test('charges are returned as individual labelled lines', () => {
+  const r = parseReceiptText(WALMART);
+  assert.deepEqual(r.charges.map((c) => [c.kind, c.amount]), [['tax', 0.53], ['discount', 1]]);
+  assert.match(r.charges[1].label, /Coupon/i);
+
+  const g = parseReceiptText(`Sharma Store\nRice 5kg 320.00\nDal 1kg 150.00\nSub Total 470.00\nCGST 2.5% 11.75\nSGST 2.5% 11.75\nGrand Total 493.50`);
+  assert.deepEqual(g.charges.map((c) => [c.kind, c.label, c.amount]), [['tax', 'Cgst', 11.75], ['tax', 'Sgst', 11.75]]);
+
+  const d = parseReceiptText(`Burger Bar\nBurger 12.00\nFries 4.00\nSubtotal 16.00\nService Charge 10% 1.60\nDelivery Fee 2.50\nTip 3.00\nVAT 20% 3.20\nTotal 26.30`);
+  assert.deepEqual(d.charges.map((c) => c.kind), ['fee', 'fee', 'tip', 'tax']);
+  assert.equal(d.charges[1].label, 'Delivery Fee');
+  assert.equal(d.charges[2].mode, 'equal'); // tips default to an equal split
+  assert.equal(d.reconciled, true);
+});
+
+test('suggested-tip tables and "total tax" aggregates do not double count', () => {
+  const c = findCharges(['Subtotal 40.00', 'Tax 3.00', 'Suggested tip 15% 6.00', 'Tip guide 18% 7.20', 'Tip ______', 'Total 43.00']);
+  assert.deepEqual(c.map((x) => x.kind), ['tax']);
+  const t = findCharges(['CGST 11.75', 'SGST 11.75', 'Total Tax 23.50']);
+  assert.equal(t.length, 2);
+  assert.equal(findCharges(['Total Tax 23.50']).length, 1); // aggregate alone is kept
+});
+
+test('item quantities: "2 x", "3 Beer", "2 @ 3.50"', () => {
+  const { items } = findItems(['2 x Margherita Pizza 26.00', '3 Beer 15.00', 'ORG MILK 2 @ 3.50 7.00 T', 'Salad 9.50', '7UP 1.50']);
+  assert.deepEqual(items.map((i) => [i.name, i.quantity, i.amount]), [
+    ['Margherita Pizza', 2, 26], ['Beer', 3, 15], ['Org Milk', 2, 7], ['Salad', 1, 9.5], ['7UP', 1, 1.5],
+  ]);
+});

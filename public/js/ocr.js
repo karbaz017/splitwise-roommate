@@ -210,8 +210,9 @@ async function recognizeBest(source, { categories, onStage, onProgress }) {
   const merged = { ...best.parsed };
   const rest = attempts.filter((a) => a.parsed !== best.parsed).sort((a, b) => b.score - a.score);
   for (const a of rest) {
-    for (const k of ['total', 'date', 'merchant', 'category', 'currency', 'tax', 'tip', 'subtotal']) if (merged[k] == null && a.parsed[k] != null) merged[k] = a.parsed[k];
+    for (const k of ['total', 'date', 'merchant', 'category', 'currency', 'tax', 'tip', 'fee', 'subtotal']) if (merged[k] == null && a.parsed[k] != null) merged[k] = a.parsed[k];
     if (!merged.items.length && a.parsed.items.length) merged.items = a.parsed.items;
+    if (!merged.charges.length && a.parsed.charges.length) merged.charges = a.parsed.charges;
     merged.totalCandidates = [...new Set([...merged.totalCandidates, ...a.parsed.totalCandidates])].slice(0, 4);
   }
   if (!best.parsed.total && merged.total) merged.confidence = Math.min(merged.confidence + 0.35, 0.6);
@@ -290,8 +291,9 @@ export function mergeResults(results) {
   if (!ok.length) return null;
   const out = { ...ok[0] };
   for (const r of ok.slice(1)) {
-    for (const k of ['total', 'date', 'merchant', 'category', 'currency', 'tax', 'tip', 'subtotal']) if (out[k] == null && r[k] != null) out[k] = r[k];
+    for (const k of ['total', 'date', 'merchant', 'category', 'currency', 'tax', 'tip', 'fee', 'subtotal']) if (out[k] == null && r[k] != null) out[k] = r[k];
     if (!out.items?.length && r.items?.length) out.items = r.items;
+    if (!out.charges?.length && r.charges?.length) out.charges = r.charges;
     out.totalCandidates = [...new Set([...(out.totalCandidates || []), ...(r.totalCandidates || [])])].slice(0, 4);
   }
   return out;
