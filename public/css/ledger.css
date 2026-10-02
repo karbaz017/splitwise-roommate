@@ -1,0 +1,86 @@
+/* Additions for the local-first ledger UI (builds on style.css) */
+.viewing-as { padding: 0 20px 12px; display: flex; flex-direction: column; gap: 6px; }
+.viewing-as label { font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.viewing-as select, .month-filter, .paid-by-row select, .split-row input[type=number], .inline-form input {
+  background: rgba(255,255,255,.04); border: 1px solid var(--border-color); color: var(--text-primary);
+  border-radius: var(--radius-sm); padding: 9px 12px; font-family: inherit; font-size: .9rem; min-width: 0;
+}
+.viewing-as select option, select option { background: #11131c; color: var(--text-primary); }
+.muted { color: var(--text-muted); font-size: .9rem; }
+.mt { margin-top: 24px; }
+.dashboard-card h3 small { color: var(--text-muted); font-weight: 400; font-size: .75rem; margin-left: 6px; }
+.dashboard-card.empty { text-align: center; padding: 40px; color: var(--text-secondary); }
+.metric-card { gap: 0; }
+
+.bal-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border-color); flex-wrap: wrap; }
+.bal-row:last-child { border-bottom: 0; }
+.bal-row .amt { font-weight: 600; font-variant-numeric: tabular-nums; }
+.bal-row.transfer.mine .amt { color: var(--rose); }
+.bar-row { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 12px; padding: 6px 0; font-size: .9rem; }
+.bar { height: 8px; background: rgba(255,255,255,.06); border-radius: 99px; overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--primary); border-radius: 99px; }
+
+.inline-form { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 20px; }
+.inline-form .form-group { margin: 0; }
+.person-actions { display: flex; gap: 8px; margin-top: 12px; }
+.entity-card.archived { opacity: .55; }
+.badge { font-size: .65rem; padding: 2px 8px; border-radius: 99px; background: var(--primary-light); color: var(--primary); font-weight: 500; vertical-align: middle; }
+
+.expense-card .clip { font-size: .75rem; color: var(--text-muted); margin-left: 6px; }
+.expense-actions button { background: none; border: 0; color: var(--text-secondary); cursor: pointer; font-size: 1rem; padding: 6px 8px; border-radius: 8px; }
+.expense-actions button:hover { background: rgba(255,255,255,.08); }
+.expense-actions { display: flex; gap: 2px; }
+.notes { color: var(--text-secondary); font-size: .9rem; margin-top: 12px; white-space: pre-wrap; }
+.receipt-strip { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.receipt-mini { width: 72px; height: 72px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border-color); display: grid; place-items: center; color: var(--text-secondary); font-size: .8rem; background: rgba(255,255,255,.04); }
+.receipt-mini img { width: 100%; height: 100%; object-fit: cover; }
+.month-filter { color-scheme: dark; }
+
+.paid-by-row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+.check-inline { display: inline-flex; align-items: center; gap: 8px; font-size: .9rem; cursor: pointer; }
+.rows-head, .split-row { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 12px; align-items: center; padding: 6px 0; }
+.rows-head { font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.split-row.off { opacity: .5; }
+.split-row .calc { text-align: right; font-variant-numeric: tabular-nums; color: var(--text-secondary); }
+.split-row input[type=number] { width: 100%; text-align: right; }
+.split-validation-bar { margin-top: 10px; font-size: .85rem; color: var(--text-secondary); min-height: 1.2em; }
+.val-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; }
+.dot-success { background: var(--emerald); } .dot-error { background: var(--rose); }
+.form-error { background: var(--rose-light); color: var(--rose); border-radius: var(--radius-sm); padding: 10px 14px; font-size: .9rem; margin-top: 12px; }
+.modal-body { overflow-y: auto; }
+body.modal-open { overflow: hidden; }
+.modal { max-width: calc(100vw - 24px); }
+
+/* Receipt dropzone */
+.dropzone { border: 2px dashed var(--border-color); border-radius: var(--radius-md); padding: 18px; text-align: center; cursor: pointer; transition: .15s; background: rgba(255,255,255,.02); }
+.dropzone:hover, .dropzone:focus-visible { border-color: var(--border-focus); outline: none; }
+.dropzone.drag { border-color: var(--primary); background: var(--primary-light); }
+.dropzone-text { display: flex; flex-direction: column; gap: 4px; }
+.dropzone-text span { color: var(--text-secondary); font-size: .85rem; }
+.dropzone-text small { color: var(--text-muted); }
+.receipt-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.receipt-chip { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(255,255,255,.03); }
+.receipt-chip.pending { border-style: dashed; }
+.receipt-thumb { width: 44px; height: 44px; border-radius: 8px; overflow: hidden; display: grid; place-items: center; background: rgba(255,255,255,.06); flex-shrink: 0; }
+.receipt-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.receipt-file-icon { font-size: .7rem; font-weight: 600; color: var(--text-secondary); }
+.receipt-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9rem; }
+.receipt-size { color: var(--text-muted); font-size: .8rem; }
+.receipt-remove { background: none; border: 0; color: var(--text-secondary); font-size: 1.3rem; cursor: pointer; line-height: 1; padding: 4px 8px; }
+.receipt-remove:hover { color: var(--rose); }
+.toast { cursor: default; }
+.toast-close { background: none; border: 0; color: inherit; font-size: 1.2rem; cursor: pointer; }
+
+@media (max-width: 860px) {
+  .app-container { flex-direction: column; }
+  .sidebar { width: 100%; height: auto; position: static; flex-direction: column; padding-bottom: 8px; }
+  .nav-menu { flex-direction: row; overflow-x: auto; gap: 4px; padding: 0 12px; }
+  .nav-item span { display: inline; }
+  .main-content { padding: 16px; margin-left: 0; width: 100%; }
+  .panel-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+  .metrics-grid, .dashboard-grid { grid-template-columns: 1fr; }
+  .filter-bar { flex-wrap: wrap; }
+  .form-row { flex-direction: column; gap: 0; }
+  .expense-card { flex-wrap: wrap; gap: 10px; padding: 14px; }
+  .bar-row { grid-template-columns: 80px 1fr auto; }
+}

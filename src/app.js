@@ -234,6 +234,32 @@ export async function createApp({ dataDir, password = '' } = {}) {
     });
   });
 
+  // ---- Exports --------------------------------------------------------------
+  const csvCell = (v) => {
+    let s = String(v ?? '');
+    if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`; // neutralise spreadsheet formulas
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+
+  app.get('/api/export/expenses.csv', (req, res) => {
+    const d = data();
+    const name = (id) => d.people.find((p) => p.id === id)?.name || id;
+    const rows = [['Date', 'Type', 'Description', 'Category', 'Amount', 'Currency', 'Paid by', 'Split between', 'Notes', 'Receipts']];
+    [...d.expenses].sort((a, b) => a.date.localeCompare(b.date)).forEach((e) => rows.push([
+      e.date, e.type, e.description, e.category, (e.amountCents / 100).toFixed(2), d.settings.currency,
+      e.paidBy.map((p) => `${name(p.personId)} ${(p.cents / 100).toFixed(2)}`).join('; '),
+      e.splits.map((s) => `${name(s.personId)} ${(s.cents / 100).toFixed(2)}`).join('; '),
+      e.notes, (e.receipts || []).length,
+    ]));
+    res.set({ 'Content-Type': 'text/csv; charset=utf-8', 'Content-Disposition': 'attachment; filename="expenses.csv"' });
+    res.send(`\uFEFF${rows.map((r) => r.map(csvCell).join(',')).join('\r\n')}\r\n`);
+  });
+
+  app.get('/api/export/ledger.json', (req, res) => {
+    res.set({ 'Content-Disposition': 'attachment; filename="ledger.json"' });
+    res.json(data());
+  });
+
   // ---- Static UI + errors -------------------------------------------------
   app.use(express.static(publicDir));
 
