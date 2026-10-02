@@ -88,3 +88,20 @@ body.modal-open { overflow: hidden; }
 .detect { margin-top: 10px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--primary-light); font-size: .88rem; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .spin { width: 14px; height: 14px; border: 2px solid var(--primary); border-right-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Item-by-item */
+.items-head, .item-row { display: grid; grid-template-columns: 1.3fr 90px 2fr 28px; gap: 10px; align-items: center; padding: 6px 0; }
+.items-head { font-size: .75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .05em; }
+.item-row input { background: rgba(255,255,255,.04); border: 1px solid var(--border-color); color: var(--text-primary); border-radius: var(--radius-sm); padding: 8px 10px; font-family: inherit; font-size: .9rem; min-width: 0; width: 100%; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { border: 1px solid var(--border-color); background: transparent; color: var(--text-secondary); border-radius: 99px; padding: 4px 10px; font-size: .8rem; cursor: pointer; font-family: inherit; }
+.chip.on { background: var(--primary-light); border-color: var(--primary); color: var(--text-primary); }
+.chip.all { border-style: dashed; }
+.items-actions { display: flex; gap: 10px; margin: 10px 0; }
+.items-summary { border-top: 1px solid var(--border-color); padding-top: 10px; font-size: .9rem; }
+.sum-line { display: flex; justify-content: space-between; padding: 3px 0; color: var(--text-secondary); }
+.sum-line strong { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+.sum-line.person { padding-left: 12px; }
+.sum-line.err { color: var(--rose); }
+.items-detail { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-color); }
+@media (max-width: 860px) { .items-head { display: none; } .item-row { grid-template-columns: 1fr 90px 28px; } .item-row .chips { grid-column: 1 / -1; order: 5; } }

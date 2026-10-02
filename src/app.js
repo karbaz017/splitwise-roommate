@@ -11,6 +11,7 @@ import {
   removeReceiptFiles, saveReceipts, uploadMiddleware,
 } from './receipts.js';
 
+const srcDir = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -287,6 +288,9 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', fet
     res.set({ 'Content-Disposition': 'attachment; filename="ledger.json"' });
     res.json(data());
   });
+
+  // The browser reuses the exact split maths the server uses, so previews can never disagree with saved results.
+  app.get('/shared/money.js', (req, res) => res.type('js').sendFile(path.join(srcDir, 'money.js')));
 
   // ---- Static UI + errors -------------------------------------------------
   app.use(express.static(publicDir));

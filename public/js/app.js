@@ -1,6 +1,7 @@
 import { API } from './api.js';
 import { ReceiptPicker } from './receipts.js';
 import { analyzeReceipt } from './ocr.js';
+import { computeItemSplits, toCents } from '/shared/money.js';
 import { esc, money, setCurrency, todayISO, formatDate, icons, toast, debounce } from './util.js';
 
 const $ = (id) => document.getElementById(id);
@@ -18,6 +19,7 @@ const state = {
   editing: null, // expense being edited (or null)
   settleEditing: null,
   rows: [], // split-editor rows for the expense modal
+  items: [], // item-by-item rows: {name, amount, personIds}
 };
 
 const active = () => state.people.filter((p) => p.active);
@@ -161,6 +163,7 @@ function expenseCard(e) {
   const payers = e.paidBy.map((p) => `${youOr(p.personId)} ${money(p.cents)}`).join(', ');
   const splits = e.splits.map((s) => `<div class="split-user-row"><span class="split-username">${esc(youOr(s.personId))}</span><span class="split-details">${e.type === 'settlement' ? 'received' : 'owes'} ${money(s.cents)}</span></div>`).join('');
   const receipts = (e.receipts || []).map((r) => `<a class="receipt-mini" href="${API.receiptUrl(r.file)}" target="_blank" rel="noopener" title="${esc(r.name)}">${r.mime.startsWith('image/') && r.mime !== 'image/heic' ? `<img src="${API.receiptUrl(r.file)}" alt="${esc(r.name)}" loading="lazy">` : `<span>${r.mime === 'application/pdf' ? 'PDF' : 'IMG'}</span>`}</a>`).join('');
+  const itemsHtml = e.items?.length ? `<div class="items-detail">${e.items.map((it) => `<div class="split-user-row"><span class="split-username">${esc(it.name || 'Item')}</span><span class="split-details">${money(it.cents)} · ${esc(it.personIds.map(youOr).join(', '))}</span></div>`).join('')}${e.extraCents ? `<div class="split-user-row"><span class="split-username">Tax, tip &amp; fees</span><span class="split-details">${money(e.extraCents)}</span></div>` : ''}</div>` : '';
   return `<div class="expense-card-wrapper" data-id="${esc(e.id)}">
     <div class="expense-card" data-toggle>
       <div class="expense-details">
@@ -176,6 +179,7 @@ function expenseCard(e) {
       </div>
     </div>
     <div class="expense-expanded-details">
+      ${itemsHtml}
       <div class="expanded-splits-grid">${splits}</div>
       ${e.notes ? `<p class="notes">${esc(e.notes)}</p>` : ''}
       ${receipts ? `<div class="receipt-strip">${receipts}</div>` : ''}
@@ -234,7 +238,10 @@ function openExpense(expense = null) {
   // "equally"; anything else is edited as exact amounts so nothing is silently changed.
   const first = expense?.splits[0]?.cents;
   const equalish = !expense || expense.splits.every((s) => Math.abs(s.cents - first) <= 1);
-  $('e-method').value = equalish ? 'equal' : 'exact';
+  $('e-method').value = expense?.splitMethod === 'items' && expense.items ? 'items' : equalish ? 'equal' : 'exact';
+  state.items = expense?.splitMethod === 'items' && expense.items
+    ? expense.items.map((it) => ({ name: it.name, amount: it.cents / 100, personIds: [...it.personIds] }))
+    : [];
   state.rows = pool.map((p) => {
     const s = expense?.splits.find((x) => x.personId === p.id);
     const paid = expense?.paidBy.find((x) => x.personId === p.id);
@@ -259,6 +266,17 @@ function openExpense(expense = null) {
 
 function renderRows() {
   const method = $('e-method').value;
+  const itemsMode = method === 'items';
+  $('e-participants').classList.toggle('hidden', itemsMode);
+  $('e-items').classList.toggle('hidden', !itemsMode);
+  $('e-multi-payer').disabled = itemsMode;
+  if (itemsMode) {
+    $('e-multi-payer').checked = false;
+    $('e-paid-by').disabled = false;
+    if (state.items.length === 0) state.items.push(newItem());
+    renderItems();
+    return;
+  }
   const multi = $('e-multi-payer').checked;
   $('e-paid-by').disabled = multi;
   const label = { equal: '', shares: 'shares', percentage: '%', exact: 'amount' }[method];
@@ -284,6 +302,7 @@ function readRows() {
 
 // Client-side preview only; the server recomputes and validates everything.
 function updateValidation() {
+  if ($('e-method').value === 'items') return updateItemsSummary();
   readRows();
   const method = $('e-method').value;
   const total = Math.round((parseFloat($('e-amount').value) || 0) * 100);
@@ -321,6 +340,14 @@ function updateValidation() {
 }
 
 function buildExpensePayload() {
+  if ($('e-method').value === 'items') {
+    return {
+      description: $('e-desc').value, amount: $('e-amount').value, date: $('e-date').value,
+      category: $('e-category').value, notes: $('e-notes').value, splitMethod: 'items',
+      paidBy: [{ personId: $('e-paid-by').value }],
+      items: state.items.map((it) => ({ name: it.name, amount: it.amount, personIds: it.personIds })),
+    };
+  }
   readRows();
   const method = $('e-method').value;
   const inc = state.rows.filter((r) => r.included);
@@ -364,6 +391,83 @@ async function submitExpense(e) {
     btn.disabled = false;
     btn.textContent = 'Save Expense';
   }
+}
+
+// ---------------------------------------------------------------- item-by-item editor
+const newItem = (name = '', amount = '', personIds = null) => ({
+  name, amount, personIds: personIds || (state.pool || active()).filter((p) => p.active).map((p) => p.id),
+});
+
+function renderItems() {
+  const pool = state.pool || active();
+  $('e-items').innerHTML = `
+    <div class="items-head"><span>Item</span><span>Price</span><span>Shared by (tap to toggle)</span><span></span></div>
+    ${state.items.map((it, i) => `<div class="item-row" data-i="${i}">
+      <input type="text" data-f="name" value="${esc(it.name)}" maxlength="100" placeholder="Item name" aria-label="Item name">
+      <input type="number" data-f="amount" value="${esc(it.amount)}" step="0.01" min="0.01" inputmode="decimal" placeholder="0.00" aria-label="Item price">
+      <div class="chips">${pool.map((p) => `<button type="button" class="chip ${it.personIds.includes(p.id) ? 'on' : ''}" data-chip="${esc(p.id)}" aria-pressed="${it.personIds.includes(p.id)}">${esc(p.name)}</button>`).join('')}
+        <button type="button" class="chip all" data-all>Everyone</button></div>
+      <button type="button" class="receipt-remove" data-del-item aria-label="Remove item">&times;</button>
+    </div>`).join('')}
+    <div class="items-actions">
+      <button type="button" class="btn btn-outline btn-sm" id="e-add-item">+ Add item</button>
+      <button type="button" class="btn btn-outline btn-sm hidden" id="e-use-items-total">Set total to items</button>
+    </div>
+    <div class="items-summary" id="e-items-summary"></div>`;
+  updateItemsSummary();
+}
+
+function updateItemsSummary() {
+  const box = $('e-items-summary');
+  if (!box) return;
+  const total = Math.round((parseFloat($('e-amount').value) || 0) * 100);
+  let itemsCents = 0;
+  let bad = false;
+  const items = state.items.map((it) => {
+    let cents = 0;
+    try { cents = toCents(it.amount); } catch { bad = true; }
+    if (cents <= 0 || it.personIds.length === 0) bad = true;
+    itemsCents += Math.max(cents, 0);
+    return { cents, personIds: it.personIds, name: it.name };
+  });
+  const extra = total - itemsCents;
+  $('e-use-items-total')?.classList.toggle('hidden', extra === 0 || itemsCents <= 0);
+  let html = `<div class="sum-line"><span>Items</span><strong>${money(itemsCents)}</strong></div>
+    <div class="sum-line"><span>Tax, tip, fees ${extra < 0 ? '(discount)' : ''} — shared in proportion</span><strong>${money(extra)}</strong></div>`;
+  let ok = !bad && total > 0;
+  if (ok) {
+    try {
+      const r = computeItemSplits(total, items);
+      html += r.splits.map((s) => `<div class="sum-line person"><span>${esc(youOr(s.personId))}</span><strong>${money(s.cents)}</strong></div>`).join('');
+    } catch (err) { ok = false; html += `<div class="sum-line err">${esc(err.message)}</div>`; }
+  } else if (bad) html += '<div class="sum-line err">Every item needs a price and at least one person.</div>';
+  $('e-validation').innerHTML = `<span class="val-dot ${ok ? 'dot-success' : 'dot-error'}"></span> ${ok ? 'Looks good' : 'Check the items'}`;
+  box.innerHTML = html;
+}
+
+function bindItems() {
+  const root = $('e-items');
+  root.addEventListener('input', (e) => {
+    const row = e.target.closest('.item-row');
+    if (!row || !e.target.dataset.f) return;
+    state.items[Number(row.dataset.i)][e.target.dataset.f] = e.target.value;
+    updateItemsSummary();
+  });
+  root.addEventListener('click', (e) => {
+    const row = e.target.closest('.item-row');
+    const it = row && state.items[Number(row.dataset.i)];
+    if (e.target.closest('[data-chip]') && it) {
+      const id = e.target.closest('[data-chip]').dataset.chip;
+      it.personIds = it.personIds.includes(id) ? it.personIds.filter((x) => x !== id) : [...it.personIds, id];
+      renderItems();
+    } else if (e.target.closest('[data-all]') && it) { it.personIds = (state.pool || active()).filter((p) => p.active).map((p) => p.id); renderItems(); }
+    else if (e.target.closest('[data-del-item]') && it) { state.items.splice(Number(row.dataset.i), 1); if (!state.items.length) state.items.push(newItem()); renderItems(); }
+    else if (e.target.id === 'e-add-item') { state.items.push(newItem()); renderItems(); root.querySelector('.item-row:last-of-type [data-f=name]')?.focus(); }
+    else if (e.target.id === 'e-use-items-total') {
+      const sum = state.items.reduce((a, x) => { try { return a + toCents(x.amount); } catch { return a; } }, 0);
+      $('e-amount').value = (sum / 100).toFixed(2); updateItemsSummary();
+    }
+  });
 }
 
 // ---------------------------------------------------------------- receipt detection
@@ -490,6 +594,7 @@ function bind() {
   $('expense-form').onsubmit = submitExpense;
   $('settle-form').onsubmit = submitSettle;
   $('e-method').onchange = renderRows;
+  bindItems();
   $('e-multi-payer').onchange = renderRows;
   $('e-amount').oninput = updateValidation;
   $('e-participants').addEventListener('input', updateValidation);
