@@ -11,6 +11,7 @@ const state = {
   settings: { householdName: '', currency: 'USD', categories: [] },
   people: [],
   me: localStorage.getItem('ledger_me') || '',
+  ai: false, // server has an AI key
   tab: 'dashboard',
   page: 0,
   total: 0,
@@ -32,6 +33,10 @@ async function load() {
   state.settings = settings;
   state.people = people.people;
   setCurrency(settings.currency);
+  if (!state.capsLoaded) {
+    state.capsLoaded = true;
+    API.capabilities().then((c) => { state.ai = !!c.ai; $('ai-card').classList.toggle('hidden', !c.ai); }).catch(() => {});
+  }
   if (!active().some((p) => p.id === state.me)) state.me = active()[0]?.id || '';
   renderChrome();
 }
@@ -482,6 +487,8 @@ function applySuggestion(r) {
   updateValidation();
 }
 
+const useAi = () => state.ai && localStorage.getItem('ledger_ai') !== 'off';
+
 async function detectFromReceipt(files) {
   const box = $('e-detect');
   const run = ++detectRun;
@@ -493,12 +500,19 @@ async function detectFromReceipt(files) {
     let unreadable = 0;
     for (const [i, file] of files.entries()) {
       const label = files.length > 1 ? ` ${i + 1}/${files.length}` : '';
-      const r = await analyzeReceipt(file, {
-        categories: state.settings.categories,
-        onStage: (stage) => status(`<span class="spin"></span> ${esc(stage)}${label}… <small>${esc(file.name)}</small>`),
-      });
+      const stage = (s) => status(`<span class="spin"></span> ${esc(s)}${label}… <small>${esc(file.name)}</small>`);
+      let ai = null;
+      if (useAi() && !/heic|heif/i.test(`${file.type} ${file.name}`)) {
+        stage('Reading with AI');
+        try { ai = (await API.analyzeReceiptAi(file)).result; } catch (err) { console.warn('AI reading failed, using local OCR:', err.message); }
+        if (run !== detectRun) return;
+      }
+      if (ai && ai.confidence >= 0.75) { results.push(ai); continue; }
+      const r = await analyzeReceipt(file, { categories: state.settings.categories, onStage: stage });
       if (run !== detectRun) return;
-      if (r) results.push(r); else unreadable++;
+      if (r) results.push(r);
+      if (ai) results.push(ai);
+      if (!r && !ai) unreadable++;
     }
     const r = mergeResults(results);
     if (!r) { status('This file type can’t be read in the browser. It will still be saved. Enter the details manually.'); return; }
@@ -520,7 +534,7 @@ function showDetection(r) {
 
   if (confident && untouched()) {
     applySuggestion(r);
-    box.innerHTML = `✔ Filled from receipt: ${parts}. Please double-check.${r.reconciled ? ' <small>(total matches subtotal + tax)</small>' : ''}`;
+    box.innerHTML = `✔ Filled from receipt${r.source === 'ai' ? ' (AI)' : ''}: ${parts}. Please double-check.${r.reconciled ? ' <small>(total matches items/subtotal + tax)</small>' : ''}`;
   } else {
     box.innerHTML = `${confident ? 'Detected' : 'Low confidence, please check'}: ${parts || 'partial details'} <button type="button" class="btn btn-outline btn-sm" id="e-apply">Use these</button>`;
     $('e-apply').onclick = () => { applySuggestion(r); showApplied(); };
@@ -657,6 +671,8 @@ function bind() {
     $('person-form').reset();
   };
   bindSplitwise();
+  $('ai-toggle').checked = localStorage.getItem('ledger_ai') !== 'off';
+  $('ai-toggle').onchange = (e) => localStorage.setItem('ledger_ai', e.target.checked ? 'on' : 'off');
   $('settings-form').onsubmit = async (e) => {
     e.preventDefault();
     try {

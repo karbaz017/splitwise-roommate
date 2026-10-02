@@ -29,6 +29,12 @@ const swHeaders = () => {
 };
 
 export const API = {
+  capabilities: () => request('/api/capabilities'),
+  analyzeReceiptAi(file) {
+    const form = new FormData();
+    form.append('receipts', file, file.name);
+    return request('/api/receipts/analyze', { method: 'POST', form });
+  },
   splitwiseStatus: () => request('/api/splitwise/status', { headers: swHeaders() }),
   splitwiseImport: () => request('/api/splitwise/import', { method: 'POST', headers: swHeaders() }),
   settings: () => request('/api/settings'),

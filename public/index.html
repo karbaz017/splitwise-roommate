@@ -112,6 +112,11 @@
             </div>
             <div class="settings-actions"><button class="btn btn-primary" type="submit">Save</button></div>
           </form>
+          <div class="settings-card hidden" id="ai-card">
+            <h3><i data-lucide="sparkles"></i> AI receipt reading <span class="badge">enabled by server</span></h3>
+            <p class="settings-desc">Your server has an AI key configured. When on, receipts you attach are sent to Anthropic to be read (better with messy photos, other languages and long item lists). When off, or if it fails, receipts are read locally in your browser.</p>
+            <label class="check-inline"><input type="checkbox" id="ai-toggle"> Use AI reading in this browser</label>
+          </div>
           <div class="settings-card" id="sw-card">
             <h3><i data-lucide="plug"></i> Splitwise <span class="badge">optional</span></h3>
             <p class="settings-desc">This ledger works on its own. If you have existing history in Splitwise you can import it here (read-only, safe to repeat). Splitwise's API now needs a Pro subscription on the developer account, so if this fails nothing else is affected.</p>

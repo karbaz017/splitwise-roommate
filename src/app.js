@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { AiError, DEFAULT_MODEL, analyzeWithAi } from './ai.js';
 import { SplitwiseError, importFromSplitwise, makeClient } from './splitwise.js';
 import { ValidationError, netBalances, simplifyDebts } from './money.js';
 import { CATEGORIES, normalizeExpense, normalizePerson } from './ledger.js';
@@ -38,7 +39,7 @@ function basicAuth(password) {
   };
 }
 
-export async function createApp({ dataDir, password = '', splitwiseKey = '', fetchImpl = fetch } = {}) {
+export async function createApp({ dataDir, password = '', splitwiseKey = '', anthropicKey = '', anthropicModel = '', fetchImpl = fetch } = {}) {
   const store = await new Store(dataDir).init();
   const app = express();
   app.disable('x-powered-by');
@@ -235,6 +236,22 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', fet
       transfers: simplifyDebts(net),
     });
   });
+
+  // ---- AI receipt reading (optional, off unless a key is configured) ----------
+  app.get('/api/capabilities', (req, res) => res.json({ ai: !!anthropicKey, aiModel: anthropicKey ? (anthropicModel || DEFAULT_MODEL) : null }));
+
+  app.post('/api/receipts/analyze', (req, res, next) => uploadMiddleware(req, res, next), wrap(async (req, res) => {
+    if (!anthropicKey) throw Object.assign(new Error('AI receipt reading is not enabled on this server.'), { status: 404 });
+    const file = (req.files || [])[0];
+    if (!file) throw new ValidationError('Attach a receipt in the "receipts" field.');
+    try {
+      const result = await analyzeWithAi({ apiKey: anthropicKey, model: anthropicModel || DEFAULT_MODEL, buffer: file.buffer, categories: CATEGORIES, fetchImpl });
+      res.json({ result });
+    } catch (err) {
+      if (err instanceof AiError) return res.status(err.status).json({ error: 'ai_error', message: err.message });
+      throw err;
+    }
+  }));
 
   // ---- Splitwise (optional) -------------------------------------------------
   // Never required: failures here are reported, but the rest of the app is unaffected.

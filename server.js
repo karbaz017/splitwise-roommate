@@ -7,7 +7,8 @@ dotenv.config();
 const PORT = process.env.PORT || 3000;
 const dataDir = path.resolve(process.env.DATA_DIR || './data');
 
-const app = await createApp({ dataDir, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '' });
+const app = await createApp({ dataDir, password: process.env.APP_PASSWORD || '', splitwiseKey: process.env.SPLITWISE_API_KEY || '',
+  anthropicKey: process.env.ANTHROPIC_API_KEY || '', anthropicModel: process.env.ANTHROPIC_MODEL || '' });
 
 app.listen(PORT, () => {
   console.log(`Roommate ledger running at http://localhost:${PORT}`);
