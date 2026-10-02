@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { Store } from './store.js';
+import { MAX_DRAFTS_PER_OWNER, createDraft } from './drafts.js';
 import { nextDue, normalizeRule, runRecurring } from './recurring.js';
 import { AiError, DEFAULT_MODEL, analyzeWithAi } from './ai.js';
 import { SplitwiseError, importFromSplitwise, makeClient } from './splitwise.js';
@@ -49,6 +50,9 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   app.use(express.json({ limit: '1mb' }));
 
   const data = () => store.data;
+  // A draft is only touchable by its owner (?owner=<personId>); finished entries by anyone.
+  const canTouch = (e, req) => !e.draft || e.ownerId === String(req.query.owner || '');
+  const live = () => store.data.expenses.filter((e) => !e.draft); // drafts never count as ledger entries
   app.set('runRecurring', (now) => runRecurring(store, now));
   await runRecurring(store).catch((err) => console.error('Recurring bills failed:', err));
   const publicExpense = (e) => ({ ...e });
@@ -107,7 +111,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       const i = d.people.findIndex((p) => p.id === req.params.id);
       if (i < 0) throw notFound('Person');
       const id = req.params.id;
-      const used = d.expenses.some((e) => e.paidBy.some((x) => x.personId === id) || e.splits.some((x) => x.personId === id));
+      const used = d.expenses.some((e) => e.ownerId === id || e.paidBy.some((x) => x.personId === id) || e.splits.some((x) => x.personId === id));
       if (used) {
         d.people[i].active = false;
         return { archived: true };
@@ -124,7 +128,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 25, 1), 200);
     const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const q = String(search).toLowerCase();
-    let list = data().expenses.filter((e) => {
+    let list = live().filter((e) => {
       if (q && !`${e.description} ${e.notes} ${e.category}`.toLowerCase().includes(q)) return false;
       if (person && !e.paidBy.some((x) => x.personId === person) && !e.splits.some((x) => x.personId === person)) return false;
       if (category && e.category !== category) return false;
@@ -140,12 +144,13 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   });
 
   app.get('/api/expenses/:id', (req, res) => {
-    const e = data().expenses.find((x) => x.id === req.params.id);
+    const e = live().find((x) => x.id === req.params.id);
     if (!e) throw notFound('Expense');
     res.json({ expense: publicExpense(e) });
   });
 
   app.post('/api/expenses', wrap(async (req, res) => {
+    if (req.body?.draft) throw new ValidationError('Use /api/drafts to save a draft');
     const expense = await store.mutate((d) => {
       const e = normalizeExpense(req.body || {}, d.people);
       d.expenses.push(e);
@@ -156,8 +161,10 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
 
   app.put('/api/expenses/:id', wrap(async (req, res) => {
     const expense = await store.mutate((d) => {
-      const i = d.expenses.findIndex((x) => x.id === req.params.id);
+      const i = d.expenses.findIndex((x) => x.id === req.params.id && canTouch(x, req));
       if (i < 0) throw notFound('Expense');
+      if (req.body?.draft) throw new ValidationError('Use /api/drafts to update a draft');
+      // If this was a draft, strict validation runs here and the draft fields disappear on success.
       d.expenses[i] = normalizeExpense(req.body || {}, d.people, d.expenses[i]);
       return d.expenses[i];
     });
@@ -166,7 +173,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
 
   app.delete('/api/expenses/:id', wrap(async (req, res) => {
     const removed = await store.mutate((d) => {
-      const i = d.expenses.findIndex((x) => x.id === req.params.id);
+      const i = d.expenses.findIndex((x) => x.id === req.params.id && !x.draft);
       if (i < 0) throw notFound('Expense');
       return d.expenses.splice(i, 1)[0];
     });
@@ -180,7 +187,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   app.post('/api/expenses/:id/receipts', upload, wrap(async (req, res) => {
     const files = req.files || [];
     if (files.length === 0) throw new ValidationError('No file received. Attach one or more files in the "receipts" field.');
-    const exists = data().expenses.find((x) => x.id === req.params.id);
+    const exists = data().expenses.find((x) => x.id === req.params.id && canTouch(x, req));
     if (!exists) throw notFound('Expense');
     if ((exists.receipts || []).length + files.length > MAX_RECEIPTS_PER_EXPENSE) {
       throw new ValidationError(`An expense can have at most ${MAX_RECEIPTS_PER_EXPENSE} receipts`);
@@ -188,7 +195,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     const saved = await saveReceipts(store.receiptsDir, files);
     try {
       const expense = await store.mutate((d) => {
-        const e = d.expenses.find((x) => x.id === req.params.id);
+        const e = d.expenses.find((x) => x.id === req.params.id && canTouch(x, req));
         if (!e) throw notFound('Expense');
         e.receipts = [...(e.receipts || []), ...saved];
         e.updatedAt = new Date().toISOString();
@@ -203,7 +210,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
 
   app.delete('/api/expenses/:id/receipts/:receiptId', wrap(async (req, res) => {
     const removed = await store.mutate((d) => {
-      const e = d.expenses.find((x) => x.id === req.params.id);
+      const e = d.expenses.find((x) => x.id === req.params.id && canTouch(x, req));
       if (!e) throw notFound('Expense');
       const i = (e.receipts || []).findIndex((r) => r.id === req.params.receiptId);
       if (i < 0) throw notFound('Receipt');
@@ -218,7 +225,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   app.get('/api/receipts/lookup', (req, res) => {
     const hash = String(req.query.hash || '').toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(hash)) throw new ValidationError('hash must be a SHA-256 hex digest');
-    const e = data().expenses.find((x) => (x.receipts || []).some((r) => r.hash === hash));
+    const e = live().find((x) => (x.receipts || []).some((r) => r.hash === hash));
     res.json({ duplicate: e ? { id: e.id, description: e.description, date: e.date, amountCents: e.amountCents } : null });
   });
 
@@ -236,6 +243,49 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
       if (err && !res.headersSent) res.status(404).json({ error: 'not_found', message: 'Receipt not found' });
     });
   });
+
+  // ---- Drafts (private to the person who saved them) ------------------------
+  const ownerOf = (req) => String(req.query.owner || req.body?.ownerId || '');
+  const myDrafts = (owner) => data().expenses.filter((e) => e.draft && e.ownerId === owner);
+
+  app.get('/api/drafts', (req, res) => {
+    const owner = ownerOf(req);
+    if (!owner) throw new ValidationError('owner is required');
+    res.json({ drafts: myDrafts(owner).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) });
+  });
+
+  app.post('/api/drafts', wrap(async (req, res) => {
+    const draft = await store.mutate((d) => {
+      const owner = ownerOf(req);
+      if (d.expenses.filter((e) => e.draft && e.ownerId === owner).length >= MAX_DRAFTS_PER_OWNER) {
+        throw new ValidationError(`You can keep at most ${MAX_DRAFTS_PER_OWNER} drafts. Finish or delete some first.`);
+      }
+      const x = createDraft(owner, req.body?.form, d.people);
+      d.expenses.push(x);
+      return x;
+    });
+    res.status(201).json({ draft });
+  }));
+
+  app.put('/api/drafts/:id', wrap(async (req, res) => {
+    const draft = await store.mutate((d) => {
+      const i = d.expenses.findIndex((e) => e.id === req.params.id && e.draft && e.ownerId === ownerOf(req));
+      if (i < 0) throw notFound('Draft');
+      d.expenses[i] = createDraft(ownerOf(req), req.body?.form, d.people, d.expenses[i]);
+      return d.expenses[i];
+    });
+    res.json({ draft });
+  }));
+
+  app.delete('/api/drafts/:id', wrap(async (req, res) => {
+    const removed = await store.mutate((d) => {
+      const i = d.expenses.findIndex((e) => e.id === req.params.id && e.draft && e.ownerId === ownerOf(req));
+      if (i < 0) throw notFound('Draft');
+      return d.expenses.splice(i, 1)[0];
+    });
+    await removeReceiptFiles(store.receiptsDir, removed.receipts || []);
+    res.json({ deleted: true });
+  }));
 
   // ---- Recurring bills ------------------------------------------------------
   const publicRule = (r) => ({ ...r, nextDue: nextDue(r) });
@@ -275,7 +325,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
   // ---- Balances -----------------------------------------------------------
   app.get('/api/balances', (req, res) => {
     const d = data();
-    const net = netBalances(d.expenses, d.people.map((p) => p.id));
+    const net = netBalances(live(), d.people.map((p) => p.id));
     res.json({
       currency: d.settings.currency,
       net,
@@ -337,7 +387,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
     const d = data();
     const name = (id) => d.people.find((p) => p.id === id)?.name || id;
     const rows = [['Date', 'Type', 'Description', 'Category', 'Amount', 'Currency', 'Paid by', 'Split between', 'Notes', 'Receipts']];
-    [...d.expenses].sort((a, b) => a.date.localeCompare(b.date)).forEach((e) => rows.push([
+    [...live()].sort((a, b) => a.date.localeCompare(b.date)).forEach((e) => rows.push([
       e.date, e.type, e.description, e.category, (e.amountCents / 100).toFixed(2), d.settings.currency,
       e.paidBy.map((p) => `${name(p.personId)} ${(p.cents / 100).toFixed(2)}`).join('; '),
       e.splits.map((s) => `${name(s.personId)} ${(s.cents / 100).toFixed(2)}`).join('; '),
@@ -349,7 +399,7 @@ export async function createApp({ dataDir, password = '', splitwiseKey = '', ant
 
   app.get('/api/export/ledger.json', (req, res) => {
     res.set({ 'Content-Disposition': 'attachment; filename="ledger.json"' });
-    res.json(data());
+    res.json({ ...data(), expenses: live() }); // private drafts are not part of a shared export
   });
 
   // The browser reuses the exact split maths the server uses, so previews can never disagree with saved results.
